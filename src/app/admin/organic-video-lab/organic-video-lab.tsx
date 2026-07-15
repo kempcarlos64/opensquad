@@ -159,21 +159,33 @@ export function OrganicVideoLab() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
+    void Promise.allSettled([
       requestJson<{ avatars: SelectOption[]; voices: SelectOption[]; mode: string; scriptMode: string; researchEnabled: boolean }>(
         "/api/organic-video-lab/options",
       ),
       requestJson<HistoryResponse>("/api/organic-video-lab/projects"),
-    ]).then(([options, historyData]) => {
+    ]).then(([optionsResult, historyResult]) => {
         if (!active) return;
-        setAvatars(options.avatars);
-        setVoices(options.voices);
-        setProviderMode(options.mode);
-        setScriptMode(options.scriptMode);
-        setResearchEnabled(options.researchEnabled);
-        setAvatarId(options.avatars[0]?.id ?? "");
-        setVoiceId(options.voices[0]?.id ?? "");
-        setHistory(historyData.projects);
+        if (optionsResult.status === "fulfilled") {
+          const options = optionsResult.value;
+          setAvatars(options.avatars);
+          setVoices(options.voices);
+          setProviderMode(options.mode);
+          setScriptMode(options.scriptMode);
+          setResearchEnabled(options.researchEnabled);
+          setAvatarId(options.avatars[0]?.id ?? "");
+          setVoiceId(options.voices[0]?.id ?? "");
+        } else {
+          setError(
+            optionsResult.reason instanceof Error
+              ? optionsResult.reason.message
+              : "Falha ao carregar avatares e vozes.",
+          );
+        }
+
+        if (historyResult.status === "fulfilled") {
+          setHistory(historyResult.value.projects);
+        }
       }).catch((caught: unknown) => {
         if (active) {
           setError(caught instanceof Error ? caught.message : "Falha ao carregar o laboratório.");
