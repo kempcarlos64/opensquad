@@ -39,6 +39,7 @@ concluir a configuração:
 
 ```env
 LLM_REAL_CALLS_ENABLED=false
+REELS_RESEARCH_ENABLED=false
 HEYGEN_REAL_CALLS_ENABLED=false
 ```
 
@@ -46,6 +47,24 @@ Para ativar os roteiristas reais, configure `OPENAI_API_KEY`, os modelos e os pr
 por milhão de tokens. Para a HeyGen, configure uma chave nova em `HEYGEN_API_KEY`,
 registre o endpoint `/api/webhooks/heygen` e salve o segredo retornado em
 `HEYGEN_WEBHOOK_SECRET`. Só então altere `HEYGEN_REAL_CALLS_ENABLED=true`.
+
+Para pesquisar padrões públicos antes dos três roteiristas, habilite
+`REELS_RESEARCH_ENABLED=true` junto com as chamadas reais de LLM. A pesquisa
+registra URLs e evidências, não inventa métricas e não copia a expressão criativa
+das referências.
+
+Para produção com apresentador e voz humana, as três flags precisam refletir o
+modo desejado no ambiente de produção:
+
+```bash
+LLM_REAL_CALLS_ENABLED=true
+REELS_RESEARCH_ENABLED=true
+HEYGEN_REAL_CALLS_ENABLED=true
+```
+
+Também configure `OPENAI_API_KEY`, `HEYGEN_API_KEY` e o segredo do webhook. Ter
+somente as chaves cadastradas não ativa chamadas reais. O pipeline rejeita mídia
+sem áudio, não vertical, curta/corrompida ou sem a geometria final 1080x1920.
 
 Nunca use prefixo `NEXT_PUBLIC_` em segredos. Credenciais não são persistidas no
 banco, respostas da API ou logs.

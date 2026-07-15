@@ -228,15 +228,15 @@ export async function updateVideoJob(
     status: VideoJobStatus;
     responseJson: Record<string, unknown>;
     sourceVideoUrl: string;
-    storedSourcePath: string;
-    finalVideoPath: string;
-    srtPath: string;
+    storedSourcePath: string | null;
+    finalVideoPath: string | null;
+    srtPath: string | null;
     timelineJson: RenderTimeline;
     estimatedCost: number;
     actualCost: number;
     pollAttempt: number;
     nextPollAt: Date;
-    errorMessage: string;
+    errorMessage: string | null;
   }>,
 ) {
   await getDatabase()

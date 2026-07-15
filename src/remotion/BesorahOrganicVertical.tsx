@@ -450,6 +450,7 @@ export function BesorahOrganicVertical({
         src={assetSource(timeline.baseVideoUrl)}
         objectFit="cover"
         style={{ width: "100%", height: "100%" }}
+        muted={false}
         volume={1}
       />
 

@@ -10,6 +10,7 @@ type SelectOption = {
   language?: string;
   gender?: string;
   previewImageUrl?: string;
+  previewAudioUrl?: string;
 };
 
 type CandidateRow = {
@@ -81,6 +82,9 @@ const agentLabels: Record<string, { eyebrow: string; name: string; accent: strin
 
 const eventLabels: Record<string, string> = {
   "project.created": "Briefing criado",
+  "research.started": "Pesquisa de referências iniciada",
+  "research.completed": "Padrões de Reels verificados",
+  "research.failed": "Pesquisa indisponível; referências manuais mantidas",
   "scripts.round_started": "Roteiristas iniciados em paralelo",
   "scripts.insufficient_candidates": "Nova rodada solicitada",
   "judge.completed": "Juiz concluiu a convergência",
@@ -133,6 +137,8 @@ export function OrganicVideoLab() {
   const [avatarId, setAvatarId] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [providerMode, setProviderMode] = useState("mock");
+  const [scriptMode, setScriptMode] = useState("mock");
+  const [researchEnabled, setResearchEnabled] = useState(false);
   const [history, setHistory] = useState<Project[]>([]);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [editedScript, setEditedScript] = useState("");
@@ -154,7 +160,7 @@ export function OrganicVideoLab() {
   useEffect(() => {
     let active = true;
     void Promise.all([
-      requestJson<{ avatars: SelectOption[]; voices: SelectOption[]; mode: string }>(
+      requestJson<{ avatars: SelectOption[]; voices: SelectOption[]; mode: string; scriptMode: string; researchEnabled: boolean }>(
         "/api/organic-video-lab/options",
       ),
       requestJson<HistoryResponse>("/api/organic-video-lab/projects"),
@@ -163,6 +169,8 @@ export function OrganicVideoLab() {
         setAvatars(options.avatars);
         setVoices(options.voices);
         setProviderMode(options.mode);
+        setScriptMode(options.scriptMode);
+        setResearchEnabled(options.researchEnabled);
         setAvatarId(options.avatars[0]?.id ?? "");
         setVoiceId(options.voices[0]?.id ?? "");
         setHistory(historyData.projects);
@@ -196,6 +204,8 @@ export function OrganicVideoLab() {
   }, [detail]);
 
   const currentJob = detail?.jobs[0];
+  const selectedAvatar = avatars.find((avatar) => avatar.id === avatarId);
+  const selectedVoice = voices.find((voice) => voice.id === voiceId);
   const baseVideo = assetUrl(currentJob?.storedSourcePath ?? null);
   const finalVideo = assetUrl(currentJob?.finalVideoPath ?? null);
   const srtUrl = assetUrl(currentJob?.srtPath ?? null);
@@ -377,6 +387,15 @@ export function OrganicVideoLab() {
         </div>
       ) : null}
 
+      {providerMode === "mock" || scriptMode === "mock" ? (
+        <div className="mode-notice" role="status">
+          <strong>Demonstração técnica ativa.</strong>{" "}
+          {scriptMode === "mock" ? "Os roteiros são exemplos fixos. " : ""}
+          {providerMode === "mock" ? "O vídeo usa fundo sintético e áudio de teste. " : ""}
+          Ative os providers reais para obter pesquisa, roteiro especialista, apresentador e voz humana.
+        </div>
+      ) : null}
+
       <section className="workspace-grid">
         <div className="brief-panel panel">
           <div className="panel-heading"><span>01</span><div><p>ENTRADA</p><h2>Briefing estratégico</h2></div></div>
@@ -388,15 +407,15 @@ export function OrganicVideoLab() {
             <label className="field full"><span>Oferta / mecanismo</span><textarea rows={2} value={form.offer} onChange={(event) => change("offer", event.target.value)} /></label>
             <label className="field"><span>Tom (separado por vírgulas)</span><input value={form.tone} onChange={(event) => change("tone", event.target.value)} /></label>
             <label className="field"><span>CTA</span><input value={form.cta} onChange={(event) => change("cta", event.target.value)} /></label>
-            <label className="field full"><span>Padrões de referência · um por linha</span><textarea rows={2} value={form.sourcePatterns} onChange={(event) => change("sourcePatterns", event.target.value)} /></label>
+            <label className="field full"><span>Links de Reels, perfis ou padrões · um por linha</span><textarea rows={3} value={form.sourcePatterns} onChange={(event) => change("sourcePatterns", event.target.value)} /></label>
             <details className="advanced full"><summary>Alegações e segurança factual</summary><div className="form-grid"><label className="field"><span>Alegações permitidas</span><textarea rows={3} value={form.allowedClaims} onChange={(event) => change("allowedClaims", event.target.value)} /></label><label className="field"><span>Alegações proibidas</span><textarea rows={3} value={form.forbiddenClaims} onChange={(event) => change("forbiddenClaims", event.target.value)} /></label></div></details>
-            <label className="field"><span>Avatar</span><select value={avatarId} onChange={(event) => setAvatarId(event.target.value)}>{avatars.map((avatar) => <option key={avatar.id} value={avatar.id}>{avatar.name}</option>)}</select></label>
-            <label className="field"><span>Voz</span><select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.language ? ` · ${voice.language}` : ""}</option>)}</select></label>
+            <label className="field"><span>Avatar</span><select value={avatarId} onChange={(event) => setAvatarId(event.target.value)}>{avatars.map((avatar) => <option key={avatar.id} value={avatar.id}>{avatar.name}</option>)}</select>{selectedAvatar?.previewImageUrl ? <span className="avatar-preview" role="img" aria-label={`Prévia do avatar ${selectedAvatar.name}`} style={{ backgroundImage: `url(${selectedAvatar.previewImageUrl})` }} /> : null}</label>
+            <label className="field"><span>Voz</span><select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.language ? ` · ${voice.language}` : ""}</option>)}</select>{selectedVoice?.previewAudioUrl ? <audio className="voice-preview" controls preload="none" src={selectedVoice.previewAudioUrl}>Seu navegador não reproduz esta prévia de voz.</audio> : null}</label>
           </div>
           <button className="primary-action" type="button" onClick={() => void generateScripts()} disabled={busy !== null || !avatarId || !voiceId} data-testid="generate-scripts">
             <span>{busy === "scripts" ? "Os agentes estão trabalhando…" : "Gerar três roteiros"}</span><b>↗</b>
           </button>
-          <p className="helper" aria-live="polite">{busy === "scripts" ? "Roteiristas executados em paralelo; o juiz entra assim que houver candidatos válidos." : "O modo mock executa o fluxo completo sem consumir APIs externas."}</p>
+          <p className="helper" aria-live="polite">{busy === "scripts" ? "Pesquisa e roteiristas estão trabalhando; o juiz entra assim que houver candidatos válidos." : scriptMode === "mock" ? "Roteiros de demonstração: ative o LLM real para especialistas." : researchEnabled ? "Pesquisa web, três especialistas e juiz estão ativos." : "Especialistas ativos; pesquisa web automática desativada."}</p>
         </div>
 
         <aside className="history-panel panel">
@@ -446,7 +465,7 @@ export function OrganicVideoLab() {
           <div className="editor-panel panel">
             <div className="editor-heading"><div><p>ROTEIRO FINAL</p><h2>Sua palavra é a última.</h2></div><span>{editedScript.length} caracteres</span></div>
             <textarea aria-label="Editor do roteiro final" value={editedScript} onChange={(event) => setEditedScript(event.target.value)} rows={12} data-testid="final-script-editor" />
-            <div className="editor-actions"><button type="button" className="secondary-action" onClick={() => void saveScript()} disabled={busy !== null}>{busy === "save" ? "Salvando…" : "Salvar revisão"}</button><button type="button" className="primary-action compact-action" onClick={() => void generateVideo()} disabled={busy !== null || editedScript.length < 20} data-testid="generate-video"><span>{busy === "video" ? "Gerando vídeo-base…" : currentJob?.status === "failed" ? "Reprocessar no HeyGen" : "Gerar no HeyGen"}</span><b>▶</b></button></div>
+            <div className="editor-actions"><button type="button" className="secondary-action" onClick={() => void saveScript()} disabled={busy !== null}>{busy === "save" ? "Salvando…" : "Salvar revisão"}</button><button type="button" className="primary-action compact-action" onClick={() => void generateVideo()} disabled={busy !== null || editedScript.length < 20} data-testid="generate-video"><span>{busy === "video" ? "Gerando vídeo-base…" : currentJob?.status === "failed" ? "Reprocessar no HeyGen" : providerMode === "mock" ? "Gerar demonstração mock" : "Gerar vídeo real no HeyGen"}</span><b>▶</b></button></div>
           </div>
         </section>
       ) : null}
@@ -456,7 +475,7 @@ export function OrganicVideoLab() {
           <div className="section-heading"><span>03</span><div><p>PRODUÇÃO</p><h2>Do render ao arquivo final.</h2></div><div className="section-rule" /></div>
           <div className="production-grid">
             <div className="timeline-panel panel"><h3>Linha do tempo</h3><ol>{detail.events.map((event, index) => <li key={event.id} className={index === detail.events.length - 1 ? "current" : "done"}><i>{index === detail.events.length - 1 ? "•" : "✓"}</i><span><strong>{eventLabels[event.eventType] ?? event.eventType}</strong><small>{new Date(event.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</small></span></li>)}</ol>{currentJob && ["pending", "processing", "queued"].includes(currentJob.status) ? <button type="button" className="text-action" onClick={() => void cancelVideo()} disabled={busy !== null}>Cancelar, se suportado</button> : null}</div>
-            <div className="video-stage panel"><div className="stage-heading"><div><p>VÍDEO-BASE</p><h3>HeyGen</h3></div><span>{currentJob?.status ?? "aguardando"}</span></div>{baseVideo ? <video controls playsInline src={baseVideo} data-testid="base-video" /> : <div className="video-placeholder"><span>H</span><p>O vídeo-base aparecerá aqui.</p></div>}<button type="button" className="secondary-action full-action" onClick={() => void finalizeVideo()} disabled={!baseVideo || busy !== null}>{busy === "render" ? "Remotion está finalizando…" : "Finalizar com Remotion"}</button></div>
+            <div className="video-stage panel"><div className="stage-heading"><div><p>VÍDEO-BASE</p><h3>{providerMode === "mock" ? "Demonstração mock" : "HeyGen real"}</h3></div><span>{currentJob?.status ?? "aguardando"}</span></div>{baseVideo ? <video controls playsInline src={baseVideo} data-testid="base-video" /> : <div className="video-placeholder"><span>H</span><p>O vídeo-base aparecerá aqui.</p></div>}<button type="button" className="secondary-action full-action" onClick={() => void finalizeVideo()} disabled={!baseVideo || busy !== null}>{busy === "render" ? "Remotion está finalizando…" : "Finalizar com Remotion"}</button></div>
             <div className="video-stage final-stage panel"><div className="stage-heading"><div><p>MASTER 9:16</p><h3>Vídeo final</h3></div><span>{finalVideo ? "1080 × 1920 · 30 fps" : "aguardando"}</span></div>{finalVideo ? <video controls playsInline src={finalVideo} data-testid="final-video" /> : <div className="video-placeholder warm"><span>B</span><p>Legendas, marca e CTA entram nesta etapa.</p></div>}<div className="download-row"><a className={!finalVideo ? "download-action disabled" : "download-action"} href={finalVideo ?? "#"} download>Baixar MP4 <b>↓</b></a><a className={!srtUrl ? "download-action ghost disabled" : "download-action ghost"} href={srtUrl ?? "#"} download>Baixar SRT</a></div></div>
           </div>
           {currentJob?.errorMessage ? <p className="job-error" role="alert">{currentJob.errorMessage}</p> : null}

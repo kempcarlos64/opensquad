@@ -13,6 +13,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderTimelineSchema, type RenderTimeline } from "../lib/domain";
+import {
+  assertMediaQuality,
+  finalVideoRequirements,
+  type MediaQualityReport,
+  sourceVideoRequirements,
+} from "../server/media/quality";
 import { BESORAH_ORGANIC_VERTICAL_ID } from "./constants";
 import { timelineToSrt } from "./timeline";
 
@@ -37,6 +43,8 @@ export type RenderTimelineFiles = {
   videoPath: string;
   srtPath: string;
   durationMs: number;
+  sourceMedia: MediaQualityReport | null;
+  finalMedia: MediaQualityReport;
 };
 
 type PreparedTimeline = {
@@ -139,6 +147,14 @@ export async function renderTimelineToFiles(
   );
   await mkdir(outputDirectory, { recursive: true });
 
+  const localSource = localAssetPath(timeline.baseVideoUrl);
+  const sourceMedia = localSource
+    ? await assertMediaQuality(
+      localSource,
+      sourceVideoRequirements(timeline.durationMs),
+    )
+    : null;
+
   const prepared = await prepareTimelineAssets(timeline);
   let serveUrl: string | null = null;
 
@@ -162,6 +178,10 @@ export async function renderTimelineToFiles(
       serveUrl,
       codec: "h264",
       audioCodec: "aac",
+      audioBitrate: "192k",
+      sampleRate: 48_000,
+      muted: false,
+      enforceAudioTrack: true,
       pixelFormat: "yuv420p",
       crf: 18,
       inputProps,
@@ -178,10 +198,26 @@ export async function renderTimelineToFiles(
       },
     });
 
+    const finalMedia = await assertMediaQuality(
+      videoPath,
+      finalVideoRequirements(timeline.durationMs),
+    );
     await writeFile(srtPath, timelineToSrt(timeline), "utf8");
     options.onProgress?.({ phase: "completed", progress: 1 });
 
-    return { videoPath, srtPath, durationMs: timeline.durationMs };
+    return {
+      videoPath,
+      srtPath,
+      durationMs: timeline.durationMs,
+      sourceMedia,
+      finalMedia,
+    };
+  } catch (error) {
+    await Promise.all([
+      rm(videoPath, { force: true }),
+      rm(srtPath, { force: true }),
+    ]);
+    throw error;
   } finally {
     await rm(prepared.publicDirectory, { recursive: true, force: true });
     if (serveUrl) await removeTemporaryBundle(serveUrl);

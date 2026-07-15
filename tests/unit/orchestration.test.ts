@@ -11,9 +11,9 @@ describe("parallel script orchestration contract", () => {
       mode: "mock",
       candidateModel: mock.candidateModel,
       judgeModel: mock.judgeModel,
-      generateCandidate: vi.fn(async (agent, brief, round) => {
+      generateCandidate: vi.fn(async (agent, brief, round, retryDirective) => {
         if (agent === "conversion") throw new Error("isolated failure");
-        return mock.generateCandidate(agent, brief, round);
+        return mock.generateCandidate(agent, brief, round, retryDirective);
       }),
       judge: mock.judge.bind(mock),
     };
@@ -32,7 +32,7 @@ describe("parallel script orchestration contract", () => {
     };
     const settled = await Promise.allSettled(
       (["retention", "conversion", "naturalness"] as const).map((agent) =>
-        provider.generateCandidate(agent, brief, 1),
+        provider.generateCandidate(agent, brief, 1, null),
       ),
     );
     expect(settled.filter((result) => result.status === "fulfilled")).toHaveLength(2);

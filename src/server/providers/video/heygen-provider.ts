@@ -41,6 +41,7 @@ const avatarItemSchema = z
     supported_api_engines: z.array(z.string()).nullish(),
     image_width: z.number().int().positive().nullish(),
     image_height: z.number().int().positive().nullish(),
+    status: z.string().min(1).optional().default("completed"),
   })
   .passthrough();
 
@@ -176,6 +177,108 @@ function fileNameForVideo(videoId: string, videoUrl: URL): string {
   return `${videoId.replace(/[^A-Za-z0-9_.-]/g, "_")}.mp4`;
 }
 
+const DEFAULT_AVATAR_ENGINE = "avatar_iv";
+const MINIMUM_MP4_HEADER_BYTES = 12;
+
+function isCompletedAvatarStatus(status: string): boolean {
+  return status.trim().toLowerCase() === "completed";
+}
+
+function normalizeEngine(engine: string | null): string {
+  const normalized = engine?.trim() || DEFAULT_AVATAR_ENGINE;
+  if (!/^[a-z0-9_]{2,64}$/.test(normalized)) {
+    throw new VideoProviderError("Engine de avatar HeyGen inválido.", {
+      code: "invalid_avatar_engine",
+    });
+  }
+  return normalized;
+}
+
+function validMp4ContentType(contentType: string | null): boolean {
+  if (contentType === null) {
+    return true;
+  }
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  return (
+    mediaType === "video/mp4" ||
+    mediaType === "application/mp4" ||
+    mediaType === "application/octet-stream" ||
+    mediaType === "binary/octet-stream"
+  );
+}
+
+function hasMp4FileTypeBox(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= MINIMUM_MP4_HEADER_BYTES &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70
+  );
+}
+
+async function validateMp4Stream(
+  body: ReadableStream<Uint8Array>,
+): Promise<ReadableStream<Uint8Array>> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  try {
+    while (byteLength < MINIMUM_MP4_HEADER_BYTES) {
+      const result = await reader.read();
+      if (result.done) {
+        break;
+      }
+      if (result.value.byteLength > 0) {
+        chunks.push(result.value);
+        byteLength += result.value.byteLength;
+      }
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw new VideoProviderError(
+      "Não foi possível ler o início do vídeo retornado pela HeyGen.",
+      { code: "video_media_read_failed", retryable: true, cause: error },
+    );
+  }
+
+  const prefix = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    prefix.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  if (!hasMp4FileTypeBox(prefix)) {
+    await reader.cancel().catch(() => undefined);
+    throw new VideoProviderError(
+      "A HeyGen retornou um arquivo que não possui cabeçalho MP4 válido.",
+      { code: "video_media_invalid" },
+    );
+  }
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(prefix);
+    },
+    async pull(controller) {
+      try {
+        const result = await reader.read();
+        if (result.done) {
+          controller.close();
+        } else {
+          controller.enqueue(result.value);
+        }
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
 export class HeyGenProvider implements VideoProvider {
   readonly name = "heygen" as const;
   readonly mode = "real" as const;
@@ -233,7 +336,9 @@ export class HeyGenProvider implements VideoProvider {
       }
 
       avatars.push(
-        ...response.data.data.map((avatar) => ({
+        ...response.data.data
+          .filter((avatar) => isCompletedAvatarStatus(avatar.status))
+          .map((avatar) => ({
           id: avatar.id,
           name: avatar.name,
           groupId: avatar.group_id ?? null,
@@ -245,7 +350,7 @@ export class HeyGenProvider implements VideoProvider {
           supportedApiEngines: avatar.supported_api_engines ?? [],
           imageWidth: avatar.image_width ?? null,
           imageHeight: avatar.image_height ?? null,
-        })),
+          })),
       );
 
       if (!response.data.has_more) {
@@ -284,21 +389,54 @@ export class HeyGenProvider implements VideoProvider {
   ): Promise<CreateVideoResult> {
     const parsedPlan = validateVideoPlan(plan);
     const safeIdempotencyKey = validateIdempotencyKey(idempotencyKey);
+    const avatarId = validateResourceId(parsedPlan.avatarId, "ID do avatar");
+    const voiceId = validateResourceId(parsedPlan.voiceId, "ID da voz");
+    const script = parsedPlan.script.trim();
+    if (script.length === 0) {
+      throw new VideoProviderError("O texto falado do vídeo está vazio.", {
+        code: "spoken_script_missing",
+      });
+    }
+    const engine = normalizeEngine(parsedPlan.engine);
+    const [avatars, voices] = await Promise.all([
+      this.listAvatars(),
+      this.listVoices(),
+    ]);
+    const selectedAvatar = avatars.find((avatar) => avatar.id === avatarId);
+    if (selectedAvatar === undefined) {
+      throw new VideoProviderError(
+        "O avatar selecionado não está disponível na conta HeyGen atual.",
+        { code: "avatar_not_available" },
+      );
+    }
+    if (!voices.some((voice) => voice.id === voiceId)) {
+      throw new VideoProviderError(
+        "A voz selecionada não está disponível na conta HeyGen atual.",
+        { code: "voice_not_available" },
+      );
+    }
+    if (
+      selectedAvatar.supportedApiEngines.length > 0 &&
+      !selectedAvatar.supportedApiEngines.includes(engine)
+    ) {
+      throw new VideoProviderError(
+        `O avatar selecionado não oferece suporte ao engine ${engine}.`,
+        { code: "avatar_engine_not_supported" },
+      );
+    }
     const body: Record<string, unknown> = {
       type: "avatar",
-      avatar_id: parsedPlan.avatarId,
+      avatar_id: avatarId,
       title: parsedPlan.title,
       resolution: parsedPlan.resolution,
       aspect_ratio: parsedPlan.aspectRatio,
       output_format: parsedPlan.outputFormat,
-      script: parsedPlan.script,
-      voice_id: parsedPlan.voiceId,
+      script,
+      voice_id: voiceId,
       callback_id: parsedPlan.callbackId,
       caption: { file_format: "srt" },
+      engine: { type: engine },
     };
-    if (parsedPlan.engine !== null) {
-      body.engine = { type: parsedPlan.engine };
-    }
     if (this.callbackUrl !== null) {
       body.callback_url = this.callbackUrl;
     }
@@ -340,6 +478,12 @@ export class HeyGenProvider implements VideoProvider {
     }
 
     const video = response.data.data;
+    if (video.id !== safeVideoId) {
+      throw new VideoProviderError(
+        "A HeyGen retornou dados de um vídeo diferente do solicitado.",
+        { code: "video_id_mismatch" },
+      );
+    }
     return {
       videoId: video.id,
       status: normalizeVideoStatus(video.status),
@@ -422,13 +566,33 @@ export class HeyGenProvider implements VideoProvider {
       );
     }
 
+    const contentType = response.headers.get("content-type");
+    if (!validMp4ContentType(contentType)) {
+      await response.body.cancel().catch(() => undefined);
+      throw new VideoProviderError(
+        `A HeyGen retornou mídia com tipo inesperado: ${contentType}.`,
+        { code: "video_media_type_invalid" },
+      );
+    }
     const contentLengthHeader = response.headers.get("content-length");
     const contentLength =
       contentLengthHeader === null ? null : Number(contentLengthHeader);
+    if (
+      contentLength !== null &&
+      (!Number.isSafeInteger(contentLength) ||
+        contentLength < MINIMUM_MP4_HEADER_BYTES)
+    ) {
+      await response.body.cancel().catch(() => undefined);
+      throw new VideoProviderError(
+        "A HeyGen retornou um arquivo de vídeo vazio ou truncado.",
+        { code: "video_media_invalid" },
+      );
+    }
+    const validatedBody = await validateMp4Stream(response.body);
     return {
       videoId: video.videoId,
-      body: response.body,
-      contentType: response.headers.get("content-type"),
+      body: validatedBody,
+      contentType,
       contentLength:
         contentLength !== null &&
         Number.isSafeInteger(contentLength) &&

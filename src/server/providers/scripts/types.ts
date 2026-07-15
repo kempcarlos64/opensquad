@@ -2,6 +2,7 @@ import type {
   AgentType,
   FinalScript,
   RunMetadata,
+  RetryDirective,
   ScriptCandidate,
   VideoBrief,
 } from "@/lib/domain";
@@ -19,6 +20,7 @@ export interface ScriptProvider {
     agent: AgentType,
     brief: VideoBrief,
     round: number,
+    retryDirective: RetryDirective | null,
   ): Promise<ProviderRun<ScriptCandidate>>;
   judge(
     brief: VideoBrief,

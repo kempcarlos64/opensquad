@@ -1,7 +1,13 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 
-import type { AgentType, FinalScript, ScriptCandidate, VideoBrief } from "@/lib/domain";
+import type {
+  AgentType,
+  FinalScript,
+  RetryDirective,
+  ScriptCandidate,
+  VideoBrief,
+} from "@/lib/domain";
 import { finalScriptSchema, scriptCandidateSchema } from "@/lib/domain";
 import { getEnv } from "@/server/env";
 
@@ -30,6 +36,7 @@ export class OpenAIScriptProvider implements ScriptProvider {
     agent: AgentType,
     brief: VideoBrief,
     round: number,
+    retryDirective: RetryDirective | null,
   ): Promise<ProviderRun<ScriptCandidate>> {
     const env = getEnv();
     const prompt = await loadAgentPrompt(agent);
@@ -38,11 +45,14 @@ export class OpenAIScriptProvider implements ScriptProvider {
       model: this.candidateModel,
       input: [
         { role: "system", content: prompt.content },
-        { role: "user", content: JSON.stringify({ round, brief }) },
+        { role: "user", content: JSON.stringify({ round, brief, retry_directive: retryDirective }) },
       ],
       text: { format: zodTextFormat(scriptCandidateSchema, "script_candidate") },
     });
     const parsed = scriptCandidateSchema.parse(response.output_parsed);
+    if (parsed.agent !== agent) {
+      throw new Error(`Writer identity mismatch: expected ${agent}, received ${parsed.agent}`);
+    }
     const inputTokens = response.usage?.input_tokens ?? 0;
     const outputTokens = response.usage?.output_tokens ?? 0;
     return {

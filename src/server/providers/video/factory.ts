@@ -19,6 +19,7 @@ export function getVideoProvider(): VideoProvider {
     provider = new HeyGenProvider({
       apiKey: env.HEYGEN_API_KEY,
       baseUrl: env.HEYGEN_API_BASE,
+      callbackUrl: new URL("/api/webhooks/heygen", env.APP_URL).toString(),
       ...(env.HEYGEN_WEBHOOK_SECRET ? { webhookSecret: env.HEYGEN_WEBHOOK_SECRET } : {}),
       webhookMaxAgeSeconds: env.HEYGEN_WEBHOOK_MAX_AGE_SECONDS,
     });

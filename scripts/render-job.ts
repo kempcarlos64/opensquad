@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { renderTimelineSchema, type RenderTimeline } from "../src/lib/domain";
-import { renderTimelineToFiles } from "../src/remotion/render";
+import {
+  renderTimelineToFiles,
+  type RenderTimelineFiles,
+} from "../src/remotion/render";
 import { closeDatabaseForTests } from "../src/server/db/client";
 import {
   addAuditEvent,
@@ -12,13 +15,14 @@ import {
   updateVideoJob,
 } from "../src/server/db/repository";
 import { getEnv } from "../src/server/env";
+import {
+  assertMediaQuality,
+  finalVideoRequirements,
+  MediaQualityError,
+} from "../src/server/media/quality";
 import { getStorage } from "../src/server/storage/local";
 
-type RenderJobResult = {
-  videoPath: string;
-  srtPath: string;
-  durationMs: number;
-};
+type RenderJobResult = RenderTimelineFiles;
 
 function log(
   level: "info" | "error",
@@ -95,12 +99,35 @@ async function renderDatabaseJob(
     await getStorage().exists(job.srtPath)
   ) {
     const timeline = renderTimelineSchema.parse(job.timelineJson);
-    log("info", "remotion.job_reused", { jobId });
-    return {
-      videoPath: getStorage().resolve(job.finalVideoPath),
-      srtPath: getStorage().resolve(job.srtPath),
-      durationMs: timeline.durationMs,
-    };
+    const finalPath = getStorage().resolve(job.finalVideoPath);
+    try {
+      const finalMedia = await assertMediaQuality(
+        finalPath,
+        finalVideoRequirements(timeline.durationMs),
+      );
+      log("info", "remotion.job_reused", { jobId, finalMedia });
+      return {
+        videoPath: finalPath,
+        srtPath: getStorage().resolve(job.srtPath),
+        durationMs: timeline.durationMs,
+        sourceMedia: null,
+        finalMedia,
+      };
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : "O vídeo final existente não passou na validação de mídia.";
+      await updateVideoJob(jobId, {
+        finalVideoPath: null,
+        srtPath: null,
+        errorMessage: message,
+      });
+      await addAuditEvent(job.projectId, "remotion.reuse_quality_failed", {
+        jobId,
+        ...(error instanceof MediaQualityError ? error.toAuditPayload() : { message }),
+      });
+      log("error", "remotion.reuse_quality_failed", { jobId, message });
+    }
   }
 
   const storedSourcePath = job.storedSourcePath
@@ -153,10 +180,18 @@ async function renderDatabaseJob(
       getStorage().putFile(finalVideoKey, result.videoPath),
       getStorage().putFile(finalSrtKey, result.srtPath),
     ]);
+    const storedFinalMedia = await assertMediaQuality(
+      getStorage().resolve(finalVideoKey),
+      finalVideoRequirements(result.durationMs),
+    );
     await updateVideoJob(jobId, {
       finalVideoPath: finalVideoKey,
       srtPath: finalSrtKey,
-      errorMessage: "",
+      errorMessage: null,
+      responseJson: {
+        ...(job.responseJson ?? {}),
+        finalMediaQuality: storedFinalMedia,
+      },
     });
     await updateProject(job.projectId, { status: "completed" });
     await addAuditEvent(
@@ -167,6 +202,8 @@ async function renderDatabaseJob(
         videoPath: finalVideoKey,
         srtPath: finalSrtKey,
         durationMs: result.durationMs,
+        sourceMedia: result.sourceMedia,
+        finalMedia: storedFinalMedia,
       },
       `remotion:${jobId}:completed`,
     );
@@ -174,11 +211,16 @@ async function renderDatabaseJob(
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await updateVideoJob(jobId, { errorMessage: message });
+    await updateVideoJob(jobId, {
+      finalVideoPath: null,
+      srtPath: null,
+      errorMessage: message,
+    });
     await updateProject(job.projectId, { status: "failed" });
     await addAuditEvent(job.projectId, "remotion.render_failed", {
       jobId,
       message,
+      ...(error instanceof MediaQualityError ? error.toAuditPayload() : {}),
     });
     log("error", "remotion.job_failed", { jobId, message });
     throw error;

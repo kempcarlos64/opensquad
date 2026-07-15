@@ -9,8 +9,13 @@ import {
   updateProject,
   updateVideoJob,
 } from "@/server/db/repository";
-import { getEnv } from "@/server/env";
 import { logger } from "@/server/logger";
+import {
+  assertMediaQuality,
+  finalVideoRequirements,
+  MediaQualityError,
+  sourceVideoRequirements,
+} from "@/server/media/quality";
 import { getStorage } from "@/server/storage/local";
 
 function runExternalWorker(jobId: string): Promise<void> {
@@ -48,33 +53,108 @@ export async function renderProjectVideo(projectId: string) {
   );
   const job = details?.jobs.find((candidate) => candidate.storedSourcePath);
   if (!job?.storedSourcePath) throw new Error("O vídeo-base ainda não está disponível.");
-  if (job.finalVideoPath && job.srtPath) return job;
 
   const providerDuration = Number(job.responseJson?.durationSeconds ?? 0);
-  const durationSeconds = providerDuration > 0
-    ? providerDuration
-    : getEnv().MOCK_VIDEO_DURATION_SECONDS;
   const sourcePath = getStorage().resolve(job.storedSourcePath);
-  const timeline = buildRenderTimeline({
-    baseVideoUrl: sourcePath,
-    script: project.finalScriptJson,
-    durationMs: Math.round(durationSeconds * 1_000),
-    title: project.title,
-    cta: project.finalScriptJson.cta,
-  });
-  await updateVideoJob(job.id, { timelineJson: timeline });
-  await updateProject(project.id, { status: "rendering" });
-  await addAuditEvent(project.id, "render.started", { jobId: job.id });
 
   try {
+    const sourceMedia = await assertMediaQuality(
+      sourcePath,
+      sourceVideoRequirements(
+        providerDuration > 0 ? Math.round(providerDuration * 1_000) : undefined,
+      ),
+    );
+
+    if (job.finalVideoPath && job.srtPath) {
+      const finalExists = await getStorage().exists(job.finalVideoPath);
+      const srtExists = await getStorage().exists(job.srtPath);
+      if (finalExists && srtExists) {
+        try {
+          const expectedDurationMs = job.timelineJson?.durationMs ?? sourceMedia.durationMs;
+          const finalMedia = await assertMediaQuality(
+            getStorage().resolve(job.finalVideoPath),
+            finalVideoRequirements(expectedDurationMs),
+          );
+          await addAuditEvent(
+            project.id,
+            "render.reused_quality_passed",
+            { jobId: job.id, finalMedia },
+            `render:${job.id}:reuse_quality_passed`,
+          );
+          return job;
+        } catch (error) {
+          await updateVideoJob(job.id, {
+            finalVideoPath: null,
+            srtPath: null,
+            errorMessage: error instanceof Error ? error.message : "Vídeo final inválido.",
+          });
+          await addAuditEvent(project.id, "render.reused_quality_failed", {
+            jobId: job.id,
+            ...(error instanceof MediaQualityError
+              ? error.toAuditPayload()
+              : { message: String(error) }),
+          });
+        }
+      } else {
+        await updateVideoJob(job.id, { finalVideoPath: null, srtPath: null });
+      }
+    }
+
+    const timeline = buildRenderTimeline({
+      baseVideoUrl: sourcePath,
+      script: project.finalScriptJson,
+      durationMs: sourceMedia.durationMs,
+      title: project.title,
+      cta: project.finalScriptJson.cta,
+    });
+    await updateVideoJob(job.id, { timelineJson: timeline, errorMessage: null });
+    await updateProject(project.id, { status: "rendering" });
+    await addAuditEvent(project.id, "render.started", {
+      jobId: job.id,
+      sourceMedia,
+    });
+
     await runExternalWorker(job.id);
-    await addAuditEvent(project.id, "render.completed", { jobId: job.id });
-    return getVideoJob(job.id);
+    const completedJob = await getVideoJob(job.id);
+    if (!completedJob?.finalVideoPath || !completedJob.srtPath) {
+      throw new Error("O worker terminou sem produzir um MP4 e um SRT validados.");
+    }
+    const finalMedia = await assertMediaQuality(
+      getStorage().resolve(completedJob.finalVideoPath),
+      finalVideoRequirements(timeline.durationMs),
+    );
+    await updateProject(project.id, { status: "completed" });
+    await addAuditEvent(
+      project.id,
+      "render.completed",
+      { jobId: job.id, finalMedia },
+      `render:${job.id}:completed`,
+    );
+    return completedJob;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Falha no worker Remotion.";
-    await updateVideoJob(job.id, { errorMessage: message });
+    const sourceQualityFailure =
+      error instanceof MediaQualityError && error.stage === "source";
+    await updateVideoJob(job.id, {
+      ...(sourceQualityFailure
+        ? { status: "failed" as const, storedSourcePath: null }
+        : { finalVideoPath: null, srtPath: null }),
+      errorMessage: message,
+    });
     await updateProject(project.id, { status: "failed" });
-    await addAuditEvent(project.id, "render.failed", { jobId: job.id, message });
+    await addAuditEvent(project.id, "render.failed", {
+      jobId: job.id,
+      message,
+      ...(error instanceof MediaQualityError ? error.toAuditPayload() : {}),
+    });
+    logger.error("render.quality_or_worker_failed", {
+      projectId: project.id,
+      jobId: job.id,
+      message,
+      ...(error instanceof MediaQualityError
+        ? { code: error.code, stage: error.stage }
+        : {}),
+    });
     throw error;
   }
 }

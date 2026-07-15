@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { logger } from "@/server/logger";
+import { MediaQualityError } from "@/server/media/quality";
 
 export function apiError(error: unknown, event: string) {
   if (error instanceof ZodError) {
@@ -14,6 +15,22 @@ export function apiError(error: unknown, event: string) {
         })),
       },
       { status: 400 },
+    );
+  }
+  if (error instanceof MediaQualityError) {
+    logger.error(event, {
+      code: error.code,
+      stage: error.stage,
+      message: error.message,
+    });
+    return NextResponse.json(
+      {
+        error: error.message,
+        code: error.code,
+        stage: error.stage,
+        issues: error.issues,
+      },
+      { status: 422 },
     );
   }
   const message = error instanceof Error ? error.message : "Unexpected error";

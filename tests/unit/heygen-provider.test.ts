@@ -6,9 +6,12 @@ import type { VideoPlan } from "@/lib/domain";
 import {
   DEFAULT_MOCK_AVATAR_ID,
   DEFAULT_MOCK_VOICE_ID,
+  getVideoProvider,
   HeyGenProvider,
   MockVideoProvider,
+  resetVideoProviderForTests,
 } from "@/server/providers/video";
+import { resetEnvForTests } from "@/server/env";
 
 const PLAN: VideoPlan = {
   title: "Vídeo orgânico Besorah",
@@ -21,6 +24,11 @@ const PLAN: VideoPlan = {
   callbackId: "job-123",
   engine: "avatar_iv",
 };
+
+const VALID_MP4 = new Uint8Array([
+  0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
+  0x00, 0x00, 0x02, 0x00, 0x69, 0x73, 0x6f, 0x6d, 0x6d, 0x70, 0x34, 0x32,
+]);
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -48,6 +56,12 @@ describe("HeyGenProvider", () => {
                 name: "Avatar um",
                 default_voice_id: "voice-public",
                 supported_api_engines: ["avatar_iv"],
+                status: "completed",
+              },
+              {
+                id: "avatar-training",
+                name: "Ainda treinando",
+                status: "pending",
               },
             ],
             has_more: true,
@@ -55,7 +69,7 @@ describe("HeyGenProvider", () => {
           });
         }
         return jsonResponse({
-          data: [{ id: "avatar-2", name: "Avatar dois" }],
+          data: [{ id: "avatar-2", name: "Avatar dois", status: "completed" }],
           has_more: false,
           next_token: null,
         });
@@ -98,7 +112,33 @@ describe("HeyGenProvider", () => {
 
   it("cria vídeo v3 com idempotência e sem incluir a chave no payload", async () => {
     let capturedInit: RequestInit | undefined;
-    const fetchImpl: typeof fetch = async (_input, init) => {
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = requestUrl(input);
+      if (url.pathname === "/v3/avatars/looks") {
+        return jsonResponse({
+          data: [
+            {
+              id: DEFAULT_MOCK_AVATAR_ID,
+              name: "Avatar real selecionado",
+              supported_api_engines: ["avatar_iv"],
+              status: "completed",
+            },
+          ],
+          has_more: false,
+        });
+      }
+      if (url.pathname === "/v3/voices") {
+        return jsonResponse({
+          data: [
+            {
+              voice_id: DEFAULT_MOCK_VOICE_ID,
+              name: "Voz real selecionada",
+              language: "Portuguese (Brazil)",
+            },
+          ],
+          has_more: false,
+        });
+      }
       capturedInit = init;
       return jsonResponse({
         data: { video_id: "video-123", status: "pending", output_format: "mp4" },
@@ -110,11 +150,15 @@ describe("HeyGenProvider", () => {
       fetchImpl,
     });
 
-    const result = await provider.createVideo(PLAN, "project:123.video-1");
+    const result = await provider.createVideo(
+      { ...PLAN, engine: null },
+      "project:123.video-1",
+    );
 
     const headers = new Headers(capturedInit?.headers);
     const body = JSON.parse(String(capturedInit?.body)) as Record<string, unknown>;
     expect(result).toMatchObject({ videoId: "video-123", status: "pending" });
+    expect(provider.mode).toBe("real");
     expect(capturedInit?.method).toBe("POST");
     expect(headers.get("idempotency-key")).toBe("project:123.video-1");
     expect(headers.get("x-api-key")).toBe("super-secret-server-key");
@@ -129,6 +173,86 @@ describe("HeyGenProvider", () => {
       engine: { type: "avatar_iv" },
     });
     expect(JSON.stringify(body)).not.toContain("super-secret-server-key");
+  });
+
+  it("recusa avatar, voz ou engine fora do catálogo real atual", async () => {
+    let postCount = 0;
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = requestUrl(input);
+      if (url.pathname === "/v3/avatars/looks") {
+        return jsonResponse({
+          data: [
+            {
+              id: "live-avatar",
+              name: "Avatar disponível",
+              supported_api_engines: ["avatar_iv"],
+              status: "completed",
+            },
+          ],
+          has_more: false,
+        });
+      }
+      if (url.pathname === "/v3/voices") {
+        return jsonResponse({
+          data: [
+            {
+              voice_id: "live-voice",
+              name: "Voz disponível",
+              language: "Portuguese (Brazil)",
+            },
+          ],
+          has_more: false,
+        });
+      }
+      if (init?.method === "POST") {
+        postCount += 1;
+      }
+      return jsonResponse({
+        data: { video_id: "should-not-exist", status: "pending" },
+      });
+    };
+    const provider = new HeyGenProvider({ apiKey: "server-key", fetchImpl });
+
+    await expect(
+      provider.createVideo(
+        { ...PLAN, avatarId: "live-avatar", voiceId: "missing-voice" },
+        "invalid-voice",
+      ),
+    ).rejects.toMatchObject({ code: "voice_not_available" });
+    await expect(
+      provider.createVideo(
+        {
+          ...PLAN,
+          avatarId: "live-avatar",
+          voiceId: "live-voice",
+          engine: "avatar_v",
+        },
+        "invalid-engine",
+      ),
+    ).rejects.toMatchObject({ code: "avatar_engine_not_supported" });
+    await expect(
+      provider.createVideo(
+        { ...PLAN, avatarId: "missing-avatar", voiceId: "live-voice" },
+        "invalid-avatar",
+      ),
+    ).rejects.toMatchObject({ code: "avatar_not_available" });
+    expect(postCount).toBe(0);
+  });
+
+  it("recusa IDs em branco antes de fazer chamada externa", async () => {
+    let calls = 0;
+    const provider = new HeyGenProvider({
+      apiKey: "server-key",
+      fetchImpl: async () => {
+        calls += 1;
+        return jsonResponse({});
+      },
+    });
+
+    await expect(
+      provider.createVideo({ ...PLAN, avatarId: "   " }, "blank-avatar"),
+    ).rejects.toMatchObject({ code: "invalid_resource_id" });
+    expect(calls).toBe(0);
   });
 
   it("faz polling com backoff exponencial até o estado terminal", async () => {
@@ -173,10 +297,10 @@ describe("HeyGenProvider", () => {
           },
         });
       }
-      return new Response(new Uint8Array([1, 2, 3, 4]), {
+      return new Response(VALID_MP4, {
         headers: {
           "content-type": "video/mp4",
-          "content-length": "4",
+          "content-length": String(VALID_MP4.byteLength),
         },
       });
     };
@@ -189,11 +313,46 @@ describe("HeyGenProvider", () => {
     const download = await provider.downloadCompletedVideo("video-download");
     const bytes = new Uint8Array(await new Response(download.body).arrayBuffer());
 
-    expect([...bytes]).toEqual([1, 2, 3, 4]);
-    expect(download.contentLength).toBe(4);
+    expect([...bytes]).toEqual([...VALID_MP4]);
+    expect(download.contentLength).toBe(VALID_MP4.byteLength);
     expect(download.fileName).toBe("video-download.mp4");
     expect(calls[0]?.headers.get("x-api-key")).toBe("server-key");
     expect(calls[1]?.headers.has("x-api-key")).toBe(false);
+  });
+
+  it("rejeita download que não seja MP4 real, mesmo com HTTP 200", async () => {
+    const providerFor = (contentType: string, bytes: Uint8Array) =>
+      new HeyGenProvider({
+        apiKey: "server-key",
+        baseUrl: "https://api.heygen.test",
+        fetchImpl: async (input) => {
+          const url = requestUrl(input);
+          if (url.hostname === "api.heygen.test") {
+            return jsonResponse({
+              data: {
+                id: "video-invalid-media",
+                status: "completed",
+                video_url: "https://cdn.heygen.test/video-invalid-media.mp4",
+              },
+            });
+          }
+          return new Response(new Uint8Array([...bytes]), {
+            headers: { "content-type": contentType },
+          });
+        },
+      });
+
+    await expect(
+      providerFor("text/html", VALID_MP4).downloadCompletedVideo(
+        "video-invalid-media",
+      ),
+    ).rejects.toMatchObject({ code: "video_media_type_invalid" });
+    await expect(
+      providerFor(
+        "video/mp4",
+        new TextEncoder().encode("not-an-mp4-file"),
+      ).downloadCompletedVideo("video-invalid-media"),
+    ).rejects.toMatchObject({ code: "video_media_invalid" });
   });
 
   it("autentica o corpo bruto do webhook e rejeita assinatura ou tempo inválidos", async () => {
@@ -276,6 +435,7 @@ describe("HeyGenProvider", () => {
 describe("MockVideoProvider", () => {
   it("executa o fluxo completo em memória e deduplica clique duplo", async () => {
     const provider = new MockVideoProvider();
+    expect(provider.mode).toBe("mock");
 
     const first = await provider.createVideo(PLAN, "same-click-key");
     const duplicate = await provider.createVideo(
@@ -294,5 +454,35 @@ describe("MockVideoProvider", () => {
     await expect(provider.cancelVideo(first.videoId)).resolves.toMatchObject({
       supported: false,
     });
+  });
+
+  it("só ativa o provider real quando a feature flag está ligada", () => {
+    const previousFlag = process.env.HEYGEN_REAL_CALLS_ENABLED;
+    const previousKey = process.env.HEYGEN_API_KEY;
+    try {
+      process.env.HEYGEN_API_KEY = "test-only-key";
+      process.env.HEYGEN_REAL_CALLS_ENABLED = "false";
+      resetEnvForTests();
+      resetVideoProviderForTests();
+      expect(getVideoProvider().mode).toBe("mock");
+
+      process.env.HEYGEN_REAL_CALLS_ENABLED = "true";
+      resetEnvForTests();
+      resetVideoProviderForTests();
+      expect(getVideoProvider().mode).toBe("real");
+    } finally {
+      if (previousFlag === undefined) {
+        delete process.env.HEYGEN_REAL_CALLS_ENABLED;
+      } else {
+        process.env.HEYGEN_REAL_CALLS_ENABLED = previousFlag;
+      }
+      if (previousKey === undefined) {
+        delete process.env.HEYGEN_API_KEY;
+      } else {
+        process.env.HEYGEN_API_KEY = previousKey;
+      }
+      resetEnvForTests();
+      resetVideoProviderForTests();
+    }
   });
 });

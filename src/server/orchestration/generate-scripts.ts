@@ -1,4 +1,12 @@
-import type { AgentType, FinalScript, RunMetadata, ScriptCandidate } from "@/lib/domain";
+import type {
+  AgentType,
+  FinalScript,
+  QualityCriterion,
+  RetryDirective,
+  RunMetadata,
+  ScriptCandidate,
+  VideoBrief,
+} from "@/lib/domain";
 import { finalScriptSchema } from "@/lib/domain";
 import {
   addAuditEvent,
@@ -9,6 +17,13 @@ import {
 } from "@/server/db/repository";
 import { logger } from "@/server/logger";
 import { getScriptProvider, type ScriptProvider } from "@/server/providers/scripts";
+import { researchReelsPatterns } from "@/server/providers/research/reels-research";
+import { getEnv } from "@/server/env";
+import {
+  auditCandidateReferences,
+  enforceQualityGate,
+  normalizeBriefReferences,
+} from "@/server/providers/scripts/scoring";
 
 const agents: AgentType[] = ["retention", "conversion", "naturalness"];
 const maxRounds = 3;
@@ -26,6 +41,18 @@ function failedMetadata(model: string, latencyMs: number): RunMetadata {
 
 function humanReviewFallback(candidates: ScriptCandidate[], reason: string): FinalScript {
   const best = candidates[0];
+  const criteria: QualityCriterion[] = [
+    "hook",
+    "retention_architecture",
+    "strategic_clarity",
+    "organic_value",
+    "conversion",
+    "naturalness",
+    "brand_fit",
+    "factual_integrity",
+    "originality_safety",
+    "production_readiness",
+  ];
   return finalScriptSchema.parse({
     decision: "human_review",
     final_score: 0,
@@ -39,6 +66,24 @@ function humanReviewFallback(candidates: ScriptCandidate[], reason: string): Fin
     fact_checks: [],
     selected_elements: [],
     rejection_reasons: [reason],
+    quality_rubric: criteria.map((criterion) => ({
+      criterion,
+      score: 0,
+      evidence: reason,
+      blocking_issue: true,
+    })),
+    reference_audit: {
+      reference_ids_used: [],
+      adapted_patterns: [],
+      similarity_risk: "low",
+      prohibited_copy_detected: false,
+      notes: ["Não há candidatos suficientes para concluir a auditoria de referências."],
+    },
+    retry_directive: {
+      required_changes: [reason],
+      preserve: [],
+      do_not_repeat: [],
+    },
   });
 }
 
@@ -50,13 +95,34 @@ export async function generateScriptsForProject(
   if (!project) throw new Error("Project not found");
   if (project.finalScriptJson) return project.finalScriptJson;
 
+  let workingBrief: VideoBrief = project.briefJson;
+  if (provider.mode === "openai" && getEnv().REELS_RESEARCH_ENABLED) {
+    await addAuditEvent(projectId, "research.started", { provider: "openai_web_search" });
+    try {
+      const research = await researchReelsPatterns(workingBrief);
+      workingBrief = research.enrichedBrief;
+      await addAuditEvent(projectId, "research.completed", {
+        summary: research.report.search_summary,
+        patterns: research.report.patterns,
+        metadata: research.metadata,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha na pesquisa de referências.";
+      logger.warn("reels_research.failed", { projectId, message });
+      await addAuditEvent(projectId, "research.failed", { message });
+    }
+  }
+
+  workingBrief = normalizeBriefReferences(workingBrief);
+  let retryDirective: RetryDirective | null = null;
+
   for (let round = 1; round <= maxRounds; round += 1) {
     await addAuditEvent(projectId, "scripts.round_started", { round, mode: provider.mode });
     const starts = new Map<AgentType, number>();
     const settled = await Promise.allSettled(
       agents.map((agent) => {
         starts.set(agent, performance.now());
-        return provider.generateCandidate(agent, project.briefJson, round);
+        return provider.generateCandidate(agent, workingBrief, round, retryDirective);
       }),
     );
 
@@ -66,13 +132,14 @@ export async function generateScriptsForProject(
         const agent = agents[index];
         if (!agent) return;
         if (result.status === "fulfilled") {
-          successful.push(result.value.output);
+          const auditedOutput = auditCandidateReferences(result.value.output, workingBrief);
+          successful.push(auditedOutput);
           await saveCandidate({
             projectId,
             agent,
             version: round,
             metadata: result.value.metadata,
-            output: result.value.output,
+            output: auditedOutput,
           });
           return;
         }
@@ -102,8 +169,8 @@ export async function generateScriptsForProject(
       return fallback;
     }
 
-    const judged = await provider.judge(project.briefJson, successful, round);
-    let final = judged.output;
+    const judged = await provider.judge(workingBrief, successful, round);
+    let final = enforceQualityGate(judged.output, round, maxRounds);
     if (round === maxRounds && final.decision === "retry") {
       final = { ...final, decision: "human_review", rejection_reasons: [...final.rejection_reasons, "Limite de duas rodadas de retry atingido."] };
     }
@@ -115,7 +182,10 @@ export async function generateScriptsForProject(
       agreement: final.agreement_score,
     });
 
-    if (final.decision === "retry") continue;
+    if (final.decision === "retry") {
+      retryDirective = final.retry_directive;
+      continue;
+    }
     await updateProject(projectId, {
       status: final.decision === "approved" ? "scripts_ready" : "human_review",
       finalScriptJson: final,

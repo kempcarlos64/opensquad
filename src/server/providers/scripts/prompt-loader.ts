@@ -11,15 +11,22 @@ const promptByAgent: Record<AgentType, string> = {
 };
 
 export async function loadAgentPrompt(agent: AgentType) {
-  return loadPrompt(promptByAgent[agent]);
+  return loadPrompt(promptByAgent[agent], "quality_rubric.md");
 }
 
 export async function loadJudgePrompt() {
-  return loadPrompt("juiz_convergencia.md");
+  return loadPrompt("juiz_convergencia.md", "quality_rubric.md");
 }
 
-async function loadPrompt(name: string) {
-  const content = await fs.readFile(path.resolve(process.cwd(), "prompts", name), "utf8");
+export async function loadResearchPrompt() {
+  return loadPrompt("pesquisador_reels.md");
+}
+
+async function loadPrompt(...names: string[]) {
+  const parts = await Promise.all(
+    names.map((name) => fs.readFile(path.resolve(process.cwd(), "prompts", name), "utf8")),
+  );
+  const content = parts.join("\n\n---\n\n");
   const version = createHash("sha256").update(content).digest("hex").slice(0, 12);
   return { content, version };
 }

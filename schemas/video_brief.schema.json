@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "VideoBrief",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "objective",
     "audience",
@@ -9,55 +10,69 @@
     "tone",
     "duration_seconds",
     "cta",
-    "source_patterns"
+    "source_patterns",
+    "allowed_claims",
+    "forbidden_claims",
+    "brand_context",
+    "language"
   ],
   "properties": {
-    "objective": {
-      "type": "string"
-    },
-    "audience": {
-      "type": "string"
-    },
-    "offer": {
-      "type": "string"
-    },
+    "objective": { "type": "string", "minLength": 8, "maxLength": 500 },
+    "audience": { "type": "string", "minLength": 3, "maxLength": 300 },
+    "offer": { "type": "string", "minLength": 3, "maxLength": 500 },
     "tone": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "minItems": 1,
+      "maxItems": 6,
+      "items": { "type": "string", "minLength": 2, "maxLength": 60 }
     },
-    "duration_seconds": {
-      "type": "integer",
-      "minimum": 15,
-      "maximum": 60
-    },
-    "cta": {
-      "type": "string"
-    },
+    "duration_seconds": { "type": "integer", "minimum": 15, "maximum": 60 },
+    "cta": { "type": "string", "minLength": 3, "maxLength": 240 },
     "source_patterns": {
       "type": "array",
+      "maxItems": 12,
       "items": {
-        "type": "object"
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "minLength": 2, "maxLength": 1500 },
+          "source_type": {
+            "enum": ["user_note", "transcript", "post", "video", "campaign", "other"]
+          },
+          "source_url": { "type": "string", "format": "uri", "maxLength": 2000 },
+          "creator_or_brand": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "observed_hook": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "observed_structure": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "observed_visual_pattern": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "performance_signal": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "adaptation_guardrail": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "rights_or_permission": {
+            "enum": ["unknown", "owned", "licensed", "public_reference"]
+          }
+        }
       }
     },
     "allowed_claims": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 2, "maxLength": 500 }
     },
     "forbidden_claims": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 2, "maxLength": 500 }
     },
     "brand_context": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["company", "positioning"],
+      "properties": {
+        "company": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "positioning": { "type": "string", "maxLength": 500 }
+      }
     },
-    "language": {
-      "const": "pt-BR"
-    }
+    "language": { "const": "pt-BR" }
   }
 }

@@ -14,6 +14,11 @@ import {
 } from "@/server/db/repository";
 import { logger } from "@/server/logger";
 import {
+  assertMediaQuality,
+  MediaQualityError,
+  sourceVideoRequirements,
+} from "@/server/media/quality";
+import {
   getVideoProvider,
   VideoProviderHttpError,
   type VideoProvider,
@@ -39,23 +44,85 @@ async function persistCompletedVideo(
   provider: VideoProvider,
 ) {
   if (!job.providerVideoId) throw new Error("Provider video id missing");
-  if (job.storedSourcePath) return job.storedSourcePath;
-  const download = await provider.downloadCompletedVideo(job.providerVideoId);
   const key = `${job.projectId}/source/${job.providerVideoId.replace(/[^A-Za-z0-9_.-]/g, "_")}.mp4`;
-  await getStorage().putWebStream(key, download.body);
+  const storage = getStorage();
+  const expectedDurationSeconds = Number(job.responseJson?.durationSeconds ?? 0);
+  const expectedDurationMs = expectedDurationSeconds > 0
+    ? Math.round(expectedDurationSeconds * 1_000)
+    : undefined;
+
+  if (!job.storedSourcePath) {
+    const download = await provider.downloadCompletedVideo(job.providerVideoId);
+    await storage.putWebStream(key, download.body);
+  }
+
+  const storedKey = job.storedSourcePath ?? key;
+  let media;
+  try {
+    media = await assertMediaQuality(
+      storage.resolve(storedKey),
+      sourceVideoRequirements(expectedDurationMs),
+    );
+  } catch (error) {
+    const qualityError = error instanceof MediaQualityError
+      ? error
+      : new MediaQualityError(
+        "source",
+        [{ code: "media_probe_failed", message: "Falha ao validar o vídeo-base baixado." }],
+        null,
+        { cause: error },
+      );
+    await updateVideoJob(job.id, {
+      status: "failed",
+      storedSourcePath: null,
+      errorMessage: qualityError.message,
+    });
+    await updateProject(job.projectId, { status: "failed" });
+    await addAuditEvent(
+      job.projectId,
+      "video.quality_failed",
+      { jobId: job.id, providerVideoId: job.providerVideoId, ...qualityError.toAuditPayload() },
+      `video:${job.id}:quality_failed`,
+    );
+    logger.error("video.quality_failed", {
+      projectId: job.projectId,
+      jobId: job.id,
+      code: qualityError.code,
+      message: qualityError.message,
+    });
+    throw qualityError;
+  }
+
   await updateVideoJob(job.id, {
     status: "completed",
-    storedSourcePath: key,
+    storedSourcePath: storedKey,
     nextPollAt: new Date(0),
-    errorMessage: "",
+    errorMessage: null,
+    responseJson: {
+      ...(job.responseJson ?? {}),
+      durationSeconds: media.durationMs / 1_000,
+      mediaQuality: media,
+    },
   });
   await updateProject(job.projectId, { status: "base_ready" });
-  await addAuditEvent(job.projectId, "video.completed", {
-    jobId: job.id,
-    providerVideoId: job.providerVideoId,
-    storedPath: key,
-  });
-  return key;
+  await addAuditEvent(
+    job.projectId,
+    "video.quality_passed",
+    { jobId: job.id, providerVideoId: job.providerVideoId, media },
+    `video:${job.id}:quality_passed`,
+  );
+  await addAuditEvent(
+    job.projectId,
+    "video.completed",
+    {
+      jobId: job.id,
+      providerVideoId: job.providerVideoId,
+      storedPath: storedKey,
+      media,
+    },
+    `video:${job.id}:completed`,
+  );
+  return storedKey;
 }
 
 export async function requestVideoForProject(input: {
@@ -119,7 +186,9 @@ export async function requestVideoForProject(input: {
     const created = await provider.createVideo(plan, idempotencyKey);
     await updateVideoJob(job.id, {
       providerVideoId: created.videoId,
-      status: databaseStatus(created.status),
+      // Provider completion is only a signal. The application reaches
+      // `completed` after the downloaded MP4 passes the media quality gate.
+      status: created.status === "completed" ? "processing" : databaseStatus(created.status),
       responseJson: {
         videoId: created.videoId,
         status: created.status,
@@ -128,7 +197,7 @@ export async function requestVideoForProject(input: {
       nextPollAt: nextPollDate(0),
     });
     await updateProject(project.id, {
-      status: created.status === "completed" ? "base_ready" : "video_processing",
+      status: created.status === "failed" ? "failed" : "video_processing",
     });
 
     if (provider.mode === "mock") {
@@ -160,7 +229,7 @@ export async function syncVideoJob(jobId: string) {
   const job = await getVideoJob(jobId);
   if (!job) throw new Error("Video job not found");
   if (job.status === "completed") {
-    if (!job.storedSourcePath && job.providerVideoId) {
+    if (job.providerVideoId) {
       await persistCompletedVideo(job, getVideoProvider());
       return getVideoJob(job.id);
     }
@@ -175,7 +244,7 @@ export async function syncVideoJob(jobId: string) {
   try {
     const video = await provider.getVideo(job.providerVideoId);
     await updateVideoJob(job.id, {
-      status: databaseStatus(video.status),
+      status: video.status === "completed" ? "processing" : databaseStatus(video.status),
       pollAttempt: attempt,
       nextPollAt: nextPollDate(attempt),
       responseJson: {
