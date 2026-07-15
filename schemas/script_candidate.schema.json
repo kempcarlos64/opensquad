@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScriptCandidate",
+  "type": "object",
+  "required": [
+    "agent",
+    "title",
+    "hook",
+    "spoken_script",
+    "cta",
+    "estimated_seconds",
+    "scores",
+    "risk_flags"
+  ],
+  "properties": {
+    "agent": {
+      "enum": [
+        "retention",
+        "conversion",
+        "naturalness"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "hook": {
+      "type": "string"
+    },
+    "spoken_script": {
+      "type": "string"
+    },
+    "cta": {
+      "type": "string"
+    },
+    "estimated_seconds": {
+      "type": "number"
+    },
+    "scene_beats": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "scores": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reasoning_summary": {
+      "type": "string"
+    }
+  }
+}

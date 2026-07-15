@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FinalScript",
+  "type": "object",
+  "required": [
+    "decision",
+    "final_score",
+    "agreement_score",
+    "spoken_script",
+    "hook",
+    "cta",
+    "scene_plan",
+    "fact_checks"
+  ],
+  "properties": {
+    "decision": {
+      "enum": [
+        "approved",
+        "retry",
+        "human_review"
+      ]
+    },
+    "final_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "agreement_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "hook": {
+      "type": "string"
+    },
+    "spoken_script": {
+      "type": "string"
+    },
+    "cta": {
+      "type": "string"
+    },
+    "scene_plan": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "fact_checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "selected_elements": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "rejection_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -1,0 +1,142 @@
+Você está trabalhando no repositório existente do Besorah.
+
+OBJETIVO
+Implemente um Laboratório de Conteúdo Orgânico que transforma um briefing em vídeo vertical final usando:
+- três agentes roteiristas em paralelo;
+- juiz de convergência;
+- HeyGen como único gerador do vídeo-base;
+- Remotion para acabamento;
+- Playwright para E2E e, quando autorizado, automação de navegador.
+
+LEIA ANTES
+- README.md
+- docs/ARQUITETURA.md
+- docs/MVP_DE_HOJE.md
+- docs/CRITERIOS_DE_ACEITE.md
+- prompts/*
+- schemas/*
+- sql/schema.sql
+- .env.example
+
+REGRAS
+1. Inspecione a stack atual antes de criar dependências.
+2. Reutilize autenticação, banco, design system, filas e storage existentes.
+3. Não reescreva o projeto inteiro.
+4. Não exponha segredos no frontend.
+5. Use TypeScript estrito e validação de runtime.
+6. Todas as integrações externas devem passar por interfaces/providers.
+7. HeyGen é o único provider de vídeo. Não implemente MUAPI.
+8. Crie modo mock completo e deixe chamadas reais desligadas por padrão.
+9. Não contorne CAPTCHA, login, 2FA, limites ou bloqueios.
+10. Depois de cada etapa, execute lint, typecheck, testes e fluxo E2E.
+
+ENTREGÁVEIS
+
+A. ROTA E UI
+Crie `/admin/organic-video-lab` com:
+- formulário de briefing;
+- seleção de duração, público, tom, CTA, avatar e voz;
+- botão “Gerar roteiros”;
+- três cards lado a lado com os candidatos;
+- painel do juiz;
+- editor do roteiro final;
+- botão “Gerar no HeyGen”;
+- timeline de status;
+- player do vídeo-base;
+- botão “Finalizar com Remotion”;
+- player e download do vídeo final;
+- histórico.
+
+B. ORQUESTRAÇÃO DOS AGENTES
+- Execute os três roteiristas em paralelo com `Promise.allSettled`.
+- Use prompts da pasta `prompts`.
+- Force saída estruturada conforme JSON Schema.
+- Salve versão, latência, modelo e custo.
+- Implemente o juiz.
+- Retry máximo de duas rodadas quando `decision=retry`.
+- Depois disso, `human_review`.
+
+C. HEYGEN PROVIDER
+Crie uma interface `VideoProvider` e implementação `HeyGenProvider`.
+Funções mínimas:
+- listAvatars();
+- listVoices();
+- createVideo(plan, idempotencyKey);
+- getVideo(videoId);
+- handleWebhook(headers, rawBody);
+- downloadCompletedVideo(videoId);
+- cancelVideo quando suportado.
+
+Use a API atual da HeyGen de forma configurável.
+Não suponha IDs fixos.
+Persista `provider_video_id`.
+Registre webhook de sucesso e falha.
+Verifique assinatura.
+Como fallback, implemente polling com backoff.
+Baixe URLs temporárias imediatamente para o storage.
+Impeça cobrança duplicada por clique duplo.
+
+D. REMOTION
+Crie uma composição `BesorahOrganicVertical`:
+- 1080x1920;
+- 30 fps;
+- vídeo HeyGen como base;
+- legendas dinâmicas por palavra ou bloco;
+- safe area;
+- logo;
+- títulos curtos;
+- B-roll opcional;
+- transições discretas;
+- intro máxima de 0,5 s;
+- outro/CTA;
+- exportação MP4 e SRT.
+
+A timeline deve ser dirigida por dados JSON, não por valores espalhados no código.
+
+E. DADOS
+Adapte `sql/schema.sql` ao ORM existente.
+Crie migrations.
+Garanta índices, foreign keys, timestamps e idempotência.
+
+F. PLAYWRIGHT
+- Configure testes E2E.
+- Teste o fluxo mock completo.
+- Faça screenshot em falha.
+- Verifique console e requests com erro.
+- Se Playwright MCP estiver disponível, use-o para explorar a UI e corrigir o fluxo.
+- Não use navegador quando uma API for mais apropriada.
+
+G. QUALIDADE
+- estados de loading, retry e erro;
+- logs estruturados;
+- auditoria;
+- acessibilidade básica;
+- documentação;
+- script de setup;
+- `.env.example` atualizado.
+
+ORDEM DE EXECUÇÃO
+1. Audite o repositório e escreva um plano curto em `IMPLEMENTATION_PLAN.md`.
+2. Implemente banco e tipos.
+3. Implemente modo mock.
+4. Implemente os três agentes e o juiz.
+5. Implemente UI.
+6. Implemente HeyGen real atrás de feature flag.
+7. Implemente Remotion.
+8. Implemente testes.
+9. Rode o fluxo completo.
+10. Corrija até os critérios de aceite passarem.
+
+NÃO PARE EM UMA TELA ESTÁTICA.
+A funcionalidade só está pronta quando o fluxo mock funciona de ponta a ponta e o provider HeyGen real está integrado, ainda que desligado por feature flag.
+
+NO FINAL
+Entregue:
+- resumo do que foi implementado;
+- arquivos principais;
+- migrations;
+- comandos executados;
+- testes que passaram;
+- variáveis faltantes;
+- limitações restantes;
+- próximos passos.

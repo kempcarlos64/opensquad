@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VideoBrief",
+  "type": "object",
+  "required": [
+    "objective",
+    "audience",
+    "offer",
+    "tone",
+    "duration_seconds",
+    "cta",
+    "source_patterns"
+  ],
+  "properties": {
+    "objective": {
+      "type": "string"
+    },
+    "audience": {
+      "type": "string"
+    },
+    "offer": {
+      "type": "string"
+    },
+    "tone": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "duration_seconds": {
+      "type": "integer",
+      "minimum": 15,
+      "maximum": 60
+    },
+    "cta": {
+      "type": "string"
+    },
+    "source_patterns": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "allowed_claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_claims": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "brand_context": {
+      "type": "object"
+    },
+    "language": {
+      "const": "pt-BR"
+    }
+  }
+}

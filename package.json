@@ -1,0 +1,52 @@
+{
+  "name": "besorah-organic-content-heygen",
+  "version": "0.1.0",
+  "private": true,
+  "overrides": {
+    "postcss": "8.5.19",
+    "tsx": {
+      "esbuild": "0.27.2"
+    }
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "setup": "npm run db:migrate && tsx scripts/create-mock-video.ts",
+    "render:smoke": "tsx scripts/render-smoke.ts",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.489",
+    "@remotion/captions": "4.0.489",
+    "@remotion/media": "4.0.489",
+    "@remotion/renderer": "4.0.489",
+    "better-sqlite3": "12.11.1",
+    "drizzle-orm": "0.45.2",
+    "next": "16.2.10",
+    "openai": "6.47.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.489",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@remotion/cli": "4.0.489",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.5",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.10",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}
