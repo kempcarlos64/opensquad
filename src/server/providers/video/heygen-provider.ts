@@ -200,6 +200,10 @@ function fileNameForVideo(videoId: string, videoUrl: URL): string {
 
 const DEFAULT_AVATAR_ENGINE = "avatar_iv";
 const MINIMUM_MP4_HEADER_BYTES = 12;
+// The UI needs a representative resource library, not every public item in
+// very large accounts. Bounding cursors keeps options responsive on serverless.
+const MAX_AVATAR_LIST_PAGES = 5;
+const MAX_VOICE_LIST_PAGES = 5;
 
 function isCompletedAvatarStatus(status: string): boolean {
   return status.trim().toLowerCase() === "completed";
@@ -341,7 +345,11 @@ export class HeyGenProvider implements VideoProvider {
     const avatars: VideoProviderAvatar[] = [];
     let token: string | null = null;
 
-    for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
+    for (
+      let pageNumber = 1;
+      pageNumber <= MAX_AVATAR_LIST_PAGES;
+      pageNumber += 1
+    ) {
       const url = this.apiUrl("v3/avatars/looks");
       url.searchParams.set("limit", "50");
       if (token !== null) {
@@ -386,10 +394,7 @@ export class HeyGenProvider implements VideoProvider {
       }
     }
 
-    throw new VideoProviderError(
-      "A listagem de avatares HeyGen excedeu o limite seguro de páginas.",
-      { code: "heygen_pagination_limit" },
-    );
+    return avatars;
   }
 
   async listVoices(): Promise<VideoProviderVoice[]> {
@@ -635,7 +640,11 @@ export class HeyGenProvider implements VideoProvider {
     const voices: VideoProviderVoice[] = [];
     let token: string | null = null;
 
-    for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
+    for (
+      let pageNumber = 1;
+      pageNumber <= MAX_VOICE_LIST_PAGES;
+      pageNumber += 1
+    ) {
       const url = this.apiUrl("v3/voices");
       url.searchParams.set("type", type);
       url.searchParams.set("limit", "100");
@@ -696,10 +705,7 @@ export class HeyGenProvider implements VideoProvider {
       }
     }
 
-    throw new VideoProviderError(
-      "A listagem de vozes HeyGen excedeu o limite seguro de páginas.",
-      { code: "heygen_pagination_limit" },
-    );
+    return voices;
   }
 
   private apiUrl(path: string): URL {
