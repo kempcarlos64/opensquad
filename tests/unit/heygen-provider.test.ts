@@ -110,6 +110,72 @@ describe("HeyGenProvider", () => {
     ).toEqual(["private", "public"]);
   });
 
+  it("tolera metadados incompletos e o envelope legado sem aceitar voz sem ID", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = requestUrl(input);
+      const type = url.searchParams.get("type");
+      if (url.pathname !== "/v3/voices") {
+        throw new Error(`URL inesperada: ${url.toString()}`);
+      }
+      if (type === "public") {
+        return jsonResponse({
+          data: [
+            {
+              voice_id: "voice-public-minimal",
+              name: null,
+              language: " ",
+              gender: null,
+              support_pause: null,
+            },
+            { name: "Registro sem ID", language: "Portuguese (Brazil)" },
+          ],
+          has_more: false,
+          next_token: null,
+        });
+      }
+      return jsonResponse({
+        data: {
+          voices: [
+            {
+              voice_id: "voice-private-legacy",
+              name: "Voz privada",
+              language: "Portuguese (Brazil)",
+              preview_audio: "https://cdn.heygen.test/voice.mp3",
+            },
+          ],
+          has_more: false,
+          next_token: null,
+        },
+      });
+    };
+    const provider = new HeyGenProvider({ apiKey: "server-key", fetchImpl });
+
+    const voices = await provider.listVoices();
+
+    expect(voices).toEqual([
+      {
+        id: "voice-public-minimal",
+        name: "Voz HeyGen (-minimal)",
+        language: "",
+        gender: null,
+        type: "public",
+        supportsPause: false,
+        supportsLocale: false,
+        previewAudioUrl: null,
+      },
+      {
+        id: "voice-private-legacy",
+        name: "Voz privada",
+        language: "Portuguese (Brazil)",
+        gender: null,
+        type: "private",
+        supportsPause: false,
+        supportsLocale: false,
+        previewAudioUrl: "https://cdn.heygen.test/voice.mp3",
+      },
+    ]);
+  });
+
   it("cria vídeo v3 com idempotência e sem incluir a chave no payload", async () => {
     let capturedInit: RequestInit | undefined;
     const fetchImpl: typeof fetch = async (input, init) => {

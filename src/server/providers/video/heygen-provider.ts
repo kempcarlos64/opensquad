@@ -47,13 +47,22 @@ const avatarItemSchema = z
 
 const voiceItemSchema = z
   .object({
-    voice_id: z.string().min(1),
-    name: z.string().min(1),
-    language: z.string().min(1),
-    gender: z.string().nullish(),
-    support_pause: z.boolean().nullish(),
-    support_locale: z.boolean().nullish(),
-    preview_audio_url: z.string().nullish(),
+    voice_id: z.string().trim().min(1),
+    name: z.unknown().optional(),
+    language: z.unknown().optional(),
+    gender: z.unknown().optional(),
+    support_pause: z.unknown().optional(),
+    support_locale: z.unknown().optional(),
+    preview_audio_url: z.unknown().optional(),
+    preview_audio: z.unknown().optional(),
+  })
+  .passthrough();
+
+const legacyVoiceCollectionSchema = z
+  .object({
+    voices: z.array(z.unknown()),
+    has_more: z.boolean().optional(),
+    next_token: z.string().nullish(),
   })
   .passthrough();
 
@@ -67,8 +76,8 @@ const avatarPageSchema = z
 
 const voicePageSchema = z
   .object({
-    data: z.array(voiceItemSchema),
-    has_more: z.boolean().optional().default(false),
+    data: z.union([z.array(z.unknown()), legacyVoiceCollectionSchema]),
+    has_more: z.boolean().optional(),
     next_token: z.string().nullish(),
   })
   .passthrough();
@@ -157,6 +166,18 @@ function parseRetryAfter(value: string | null): number | null {
   }
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+function nonBlankString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function fallbackVoiceName(voiceId: string): string {
+  return `Voz HeyGen (${voiceId.slice(-8)})`;
 }
 
 function fileNameForVideo(videoId: string, videoUrl: URL): string {
@@ -630,23 +651,43 @@ export class HeyGenProvider implements VideoProvider {
         );
       }
 
+      const rawData = response.data.data;
+      const nestedPage = Array.isArray(rawData) ? null : rawData;
+      const rawVoices: unknown[] = Array.isArray(rawData)
+        ? rawData
+        : rawData.voices;
+      const pageVoices = rawVoices.flatMap((rawVoice) => {
+        const parsedVoice = voiceItemSchema.safeParse(rawVoice);
+        return parsedVoice.success ? [parsedVoice.data] : [];
+      });
+
       voices.push(
-        ...response.data.data.map((voice) => ({
+        ...pageVoices.map((voice) => ({
           id: voice.voice_id,
-          name: voice.name,
-          language: voice.language,
-          gender: voice.gender ?? null,
+          name:
+            nonBlankString(voice.name) ?? fallbackVoiceName(voice.voice_id),
+          language: nonBlankString(voice.language) ?? "",
+          gender: nonBlankString(voice.gender),
           type,
-          supportsPause: voice.support_pause ?? false,
-          supportsLocale: voice.support_locale ?? false,
-          previewAudioUrl: voice.preview_audio_url ?? null,
+          supportsPause:
+            typeof voice.support_pause === "boolean"
+              ? voice.support_pause
+              : false,
+          supportsLocale:
+            typeof voice.support_locale === "boolean"
+              ? voice.support_locale
+              : false,
+          previewAudioUrl:
+            nonBlankString(voice.preview_audio_url) ??
+            nonBlankString(voice.preview_audio),
         })),
       );
 
-      if (!response.data.has_more) {
+      const hasMore = response.data.has_more ?? nestedPage?.has_more ?? false;
+      if (!hasMore) {
         return voices;
       }
-      token = response.data.next_token ?? null;
+      token = response.data.next_token ?? nestedPage?.next_token ?? null;
       if (token === null) {
         throw new VideoProviderError(
           "A paginação de vozes HeyGen não retornou o próximo token.",
