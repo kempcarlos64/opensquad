@@ -134,6 +134,23 @@ function mockMetadata(): RunMetadata {
   };
 }
 
+export function fallbackReferenceDiscovery(
+  input: ReferenceDiscoveryInput,
+  summary = "Modo demonstrativo: as referências abaixo explicam formatos que serão pesquisados de verdade quando a pesquisa externa estiver habilitada.",
+): ReferenceDiscoveryResponse {
+  const metadata = mockMetadata();
+  return referenceDiscoveryResponseSchema.parse({
+    mode: "mock",
+    summary,
+    candidates: mockCandidates(input),
+    metadata: {
+      model: metadata.model,
+      latencyMs: metadata.latencyMs,
+      estimatedCost: metadata.estimatedCost,
+    },
+  });
+}
+
 export async function discoverReferenceCandidates(
   input: ReferenceDiscoveryInput,
 ): Promise<ReferenceDiscoveryResponse> {
@@ -156,31 +173,14 @@ export async function discoverReferenceCandidates(
     } catch {
       // Research must not prevent a user from choosing their own references or
       // continuing in mock mode when an external provider is unavailable.
-      const metadata = mockMetadata();
-      return referenceDiscoveryResponseSchema.parse({
-        mode: "mock",
-        summary: "A pesquisa externa está indisponível neste momento. Exibimos formatos demonstrativos; tente novamente ou adicione links públicos manualmente.",
-        candidates: mockCandidates(parsed),
-        metadata: {
-          model: metadata.model,
-          latencyMs: metadata.latencyMs,
-          estimatedCost: metadata.estimatedCost,
-        },
-      });
+      return fallbackReferenceDiscovery(
+        parsed,
+        "A pesquisa externa está indisponível neste momento. Exibimos formatos demonstrativos; tente novamente ou adicione links públicos manualmente.",
+      );
     }
   }
 
-  const metadata = mockMetadata();
-  return referenceDiscoveryResponseSchema.parse({
-    mode: "mock",
-    summary: "Modo demonstrativo: as referências abaixo explicam formatos que serão pesquisados de verdade quando a pesquisa externa estiver habilitada.",
-    candidates: mockCandidates(parsed),
-    metadata: {
-      model: metadata.model,
-      latencyMs: metadata.latencyMs,
-      estimatedCost: metadata.estimatedCost,
-    },
-  });
+  return fallbackReferenceDiscovery(parsed);
 }
 
 export { researchToCandidates };
