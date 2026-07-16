@@ -81,6 +81,28 @@ type ReferenceDiscovery = {
   metadata: { model: string; latencyMs: number; estimatedCost: number };
 };
 
+type InstagramReferenceCandidate = ReferenceCandidate & {
+  rank?: number;
+  metrics: { views: number | null; plays: number | null; likes: number | null; comments: number | null; shares: number | null };
+  durationSeconds: number | null;
+  publishedAt: string | null;
+  hasPublicCaption: boolean;
+  hasPublicTranscript: boolean;
+};
+
+type InstagramDiscovery = {
+  mode: "mock" | "real";
+  query: string;
+  rankingBasis: string;
+  candidates: InstagramReferenceCandidate[];
+};
+
+type InstagramLinkAnalysis = {
+  mode: "mock" | "real";
+  analysisSummary: string;
+  candidate: InstagramReferenceCandidate;
+};
+
 const initialForm = {
   title: "Conteúdo Besorah — consistência sem improviso",
   objective: "Mostrar como transformar conhecimento em conteúdo orgânico consistente",
@@ -164,6 +186,11 @@ export function OrganicVideoLab() {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [editedScript, setEditedScript] = useState("");
   const [referenceDiscovery, setReferenceDiscovery] = useState<ReferenceDiscovery | null>(null);
+  const [instagramDiscovery, setInstagramDiscovery] = useState<InstagramDiscovery | null>(null);
+  const [instagramLinkAnalysis, setInstagramLinkAnalysis] = useState<InstagramLinkAnalysis | null>(null);
+  const [referenceTab, setReferenceTab] = useState<"radar" | "link" | "formats">("radar");
+  const [instagramQuery, setInstagramQuery] = useState("Instagram content creation");
+  const [instagramLink, setInstagramLink] = useState("");
   const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -252,6 +279,11 @@ export function OrganicVideoLab() {
     );
     return scripts + judge + (currentJob?.actualCost ?? currentJob?.estimatedCost ?? 0);
   }, [currentJob, detail]);
+  const referencePool = useMemo<ReferenceCandidate[]>(() => [
+    ...(referenceDiscovery?.candidates ?? []),
+    ...(instagramDiscovery?.candidates ?? []),
+    ...(instagramLinkAnalysis ? [instagramLinkAnalysis.candidate] : []),
+  ], [instagramDiscovery, instagramLinkAnalysis, referenceDiscovery]);
 
   function change(field: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -288,9 +320,43 @@ export function OrganicVideoLab() {
         },
       );
       setReferenceDiscovery(result);
-      setSelectedReferenceIds([]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Falha ao pesquisar referências.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function discoverInstagram() {
+    setBusy("instagram-discover");
+    setError(null);
+    try {
+      const result = await requestJson<InstagramDiscovery>("/api/organic-video-lab/instagram/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: instagramQuery, limit: 10 }),
+      });
+      setInstagramDiscovery(result);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Falha ao buscar Reels publicos no Instagram.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function analyzeInstagramLink() {
+    setBusy("instagram-analyze");
+    setError(null);
+    try {
+      const result = await requestJson<InstagramLinkAnalysis>("/api/organic-video-lab/instagram/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reelUrl: instagramLink }),
+      });
+      setInstagramLinkAnalysis(result);
+      setSelectedReferenceIds((current) => current.includes(result.candidate.id) ? current : [...current, result.candidate.id].slice(0, 6));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Falha ao analisar o link do Instagram.");
     } finally {
       setBusy(null);
     }
@@ -319,7 +385,7 @@ export function OrganicVideoLab() {
             duration_seconds: Number(form.duration),
             cta: form.cta,
             source_patterns: [
-              ...(referenceDiscovery?.candidates ?? [])
+              ...referencePool
                 .filter((reference) => selectedReferenceIds.includes(reference.id))
                 .map((reference) => ({
                   id: reference.id,
@@ -503,6 +569,54 @@ export function OrganicVideoLab() {
             <label className="field"><span>Avatar</span><select value={avatarId} onChange={(event) => setAvatarId(event.target.value)}>{avatars.map((avatar) => <option key={avatar.id} value={avatar.id}>{avatar.name}</option>)}</select>{selectedAvatar?.previewImageUrl ? <span className="avatar-preview" role="img" aria-label={`Prévia do avatar ${selectedAvatar.name}`} style={{ backgroundImage: `url(${selectedAvatar.previewImageUrl})` }} /> : null}</label>
             <label className="field"><span>Voz</span><select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.language ? ` · ${voice.language}` : ""}</option>)}</select>{selectedVoice?.previewAudioUrl ? <audio className="voice-preview" controls preload="none" src={selectedVoice.previewAudioUrl}>Seu navegador não reproduz esta prévia de voz.</audio> : null}</label>
           </div>
+          <section className="reference-library instagram-radar" aria-labelledby="instagram-radar-title">
+            <div className="reference-library-heading">
+              <div>
+                <p>02 · RADAR INSTAGRAM</p>
+                <h3 id="instagram-radar-title">Referências públicas que já provaram atenção.</h3>
+              </div>
+              <span className="instagram-safe-pill">DADOS PÚBLICOS · APIFY</span>
+            </div>
+            <p className="reference-library-copy">O Top 10 é limitado aos Reels públicos retornados pela busca Popular para a consulta escolhida; alcance e engajamento são sinais, não garantia de resultado. O roteiro recebe apenas uma abstração original de estrutura.</p>
+            <div className="reference-tabs" role="tablist" aria-label="Ferramentas de referência do Instagram">
+              <button type="button" role="tab" aria-selected={referenceTab === "radar"} className={referenceTab === "radar" ? "active" : ""} onClick={() => setReferenceTab("radar")}>Radar Top 10</button>
+              <button type="button" role="tab" aria-selected={referenceTab === "link"} className={referenceTab === "link" ? "active" : ""} onClick={() => setReferenceTab("link")}>Analisar link</button>
+              <button type="button" role="tab" aria-selected={referenceTab === "formats"} className={referenceTab === "formats" ? "active" : ""} onClick={() => setReferenceTab("formats")}>Pesquisa complementar</button>
+            </div>
+            {referenceTab === "radar" ? (
+              <div role="tabpanel" className="instagram-panel">
+                <label className="field"><span>Tema a investigar</span><input value={instagramQuery} onChange={(event) => setInstagramQuery(event.target.value)} placeholder="ex.: geração de posts para Instagram" /></label>
+                <button className="secondary-action" type="button" onClick={() => void discoverInstagram()} disabled={busy !== null} data-testid="discover-instagram">
+                  {busy === "instagram-discover" ? "Buscando Reels..." : "Buscar Top 10 no Instagram"}
+                </button>
+                {instagramDiscovery ? (
+                  <div className="reference-results" data-testid="instagram-results">
+                    <div className="reference-results-meta"><span>{instagramDiscovery.mode === "real" ? "INSTAGRAM REAL" : "DEMONSTRAÇÃO MOCK"}</span><small>{instagramDiscovery.rankingBasis}</small></div>
+                    <div className="reference-card-grid instagram-card-grid">
+                      {instagramDiscovery.candidates.map((reference) => {
+                        const selected = selectedReferenceIds.includes(reference.id);
+                        return <article className={`reference-card ${selected ? "selected" : ""}`} key={reference.id}>
+                          <div className="reference-card-top"><span>#{reference.rank} · Instagram</span><label><input type="checkbox" checked={selected} onChange={() => toggleReference(reference.id)} />Usar no roteiro</label></div>
+                          <h4>{reference.creatorOrBrand}</h4><p>{reference.observedHook}</p>
+                          <dl><div><dt>Alcance público</dt><dd>{reference.performanceSignal}</dd></div><div><dt>Evidência</dt><dd>{reference.hasPublicTranscript ? "Legenda e transcrição públicas disponíveis" : reference.hasPublicCaption ? "Legenda pública disponível" : "Somente metadados públicos disponíveis"}</dd></div></dl>
+                          <a href={reference.sourceUrl} target="_blank" rel="noreferrer">Abrir Reel público ↗</a>
+                        </article>;
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {referenceTab === "link" ? (
+              <div role="tabpanel" className="instagram-panel">
+                <label className="field"><span>Link público do Reel</span><input value={instagramLink} onChange={(event) => setInstagramLink(event.target.value)} placeholder="https://www.instagram.com/reel/..." inputMode="url" /></label>
+                <button className="secondary-action" type="button" onClick={() => void analyzeInstagramLink()} disabled={busy !== null} data-testid="analyze-instagram-link">
+                  {busy === "instagram-analyze" ? "Analisando Reel..." : "Analisar Reel"}
+                </button>
+                {instagramLinkAnalysis ? <div className="reference-results" data-testid="instagram-link-analysis"><div className="reference-results-meta"><span>{instagramLinkAnalysis.mode === "real" ? "ANÁLISE REAL" : "DEMONSTRAÇÃO MOCK"}</span><small>{instagramLinkAnalysis.analysisSummary}</small></div><article className="reference-card selected"><div className="reference-card-top"><span>Instagram</span><label><input type="checkbox" checked={selectedReferenceIds.includes(instagramLinkAnalysis.candidate.id)} onChange={() => toggleReference(instagramLinkAnalysis.candidate.id)} />Usar no roteiro</label></div><h4>{instagramLinkAnalysis.candidate.creatorOrBrand}</h4><p>{instagramLinkAnalysis.candidate.observedStructure}</p><dl><div><dt>Sinal público</dt><dd>{instagramLinkAnalysis.candidate.performanceSignal}</dd></div><div><dt>Regra de originalidade</dt><dd>{instagramLinkAnalysis.candidate.adaptationGuardrail}</dd></div></dl><a href={instagramLinkAnalysis.candidate.sourceUrl} target="_blank" rel="noreferrer">Abrir Reel público ↗</a></article></div> : null}
+              </div>
+            ) : null}
+            {referenceTab === "formats" ? <div role="tabpanel"><p className="reference-library-copy">Use esta pesquisa quando quiser ampliar a investigação além do Instagram. As referências selecionadas no Radar e no analisador são preservadas.</p>
           <section className="reference-library" aria-labelledby="reference-library-title">
             <div className="reference-library-heading">
               <div>
@@ -562,6 +676,8 @@ export function OrganicVideoLab() {
             ) : null}
           </section>
 
+            </div> : null}
+          </section>
           <button className="primary-action" type="button" onClick={() => void generateScripts()} disabled={busy !== null || !avatarId || !voiceId} data-testid="generate-scripts">
             <span>{busy === "scripts" ? "Os agentes estão trabalhando…" : "Gerar três roteiros"}</span><b>↗</b>
           </button>

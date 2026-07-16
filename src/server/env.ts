@@ -30,6 +30,12 @@ const envSchema = z.object({
   REMOTION_CONCURRENCY: z.coerce.number().int().positive().default(1),
   REMOTION_OUTPUT_DIR: z.string().min(1).default("./data/renders"),
   MOCK_VIDEO_DURATION_SECONDS: z.coerce.number().min(3).max(60).default(8),
+  APIFY_API_TOKEN: z.string().min(1).optional(),
+  APIFY_REAL_CALLS_ENABLED: booleanFromString,
+  APIFY_API_BASE: z.url().default("https://api.apify.com"),
+  APIFY_INSTAGRAM_SEARCH_ACTOR: z.string().min(1).default("apify/instagram-search-scraper"),
+  APIFY_INSTAGRAM_REEL_ACTOR: z.string().min(1).default("apify/instagram-reel-scraper"),
+  APIFY_MAX_TOTAL_CHARGE_USD: z.coerce.number().min(0.01).max(5).default(0.1),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;

@@ -10,3 +10,6 @@ test-results/
 output/
 *.log
 *.tsbuildinfo
+
+.vercel
+.env*

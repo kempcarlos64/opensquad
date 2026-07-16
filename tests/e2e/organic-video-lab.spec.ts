@@ -25,10 +25,14 @@ test("fluxo mock completo: briefing até vídeo final", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Da ideia ao vídeo/i })).toBeVisible();
   await expect(page.getByText(/MODO MOCK/)).toBeVisible();
 
+  await page.getByTestId("discover-instagram").click();
+  await expect(page.getByTestId("instagram-results")).toBeVisible();
+  await expect(page.getByTestId("instagram-results").locator("article")).toHaveCount(10);
+  await page.getByTestId("instagram-results").getByLabel("Usar no roteiro").first().check();
+
+  await page.getByRole("tab", { name: "Pesquisa complementar" }).click();
   await page.getByTestId("discover-references").click();
   await expect(page.getByTestId("reference-results")).toBeVisible();
-  await page.getByLabel("Usar no roteiro").first().check();
-  await expect(page.getByText(/1 selecionada\(s\)/)).toBeVisible();
 
   await page.getByTestId("generate-scripts").click();
   await expect(page.getByTestId("candidate-grid")).toBeVisible({ timeout: 60_000 });

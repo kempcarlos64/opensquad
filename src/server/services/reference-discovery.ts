@@ -22,7 +22,7 @@ export const referenceCandidateSchema = z.object({
   observedHook: z.string().min(2).max(500),
   observedStructure: z.string().min(20).max(1_000),
   observedVisualPattern: z.string().min(2).max(1_000),
-  performanceSignal: z.string().min(2).max(700),
+  performanceSignal: z.string().min(2).max(500),
   adaptationGuardrail: z.string().min(10).max(1_000),
   rightsOrPermission: z.literal("public_reference"),
 });

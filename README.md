@@ -41,6 +41,7 @@ concluir a configuração:
 LLM_REAL_CALLS_ENABLED=false
 REELS_RESEARCH_ENABLED=false
 HEYGEN_REAL_CALLS_ENABLED=false
+APIFY_REAL_CALLS_ENABLED=false
 ```
 
 Para ativar os roteiristas reais, configure `OPENAI_API_KEY`, os modelos e os preços
