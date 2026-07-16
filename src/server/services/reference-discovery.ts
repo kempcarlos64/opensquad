@@ -2,10 +2,7 @@ import { z } from "zod";
 
 import type { RunMetadata, VideoBrief } from "@/lib/domain";
 import { getEnv } from "@/server/env";
-import {
-  type ReelsResearch,
-  researchReelsPatterns,
-} from "@/server/providers/research/reels-research";
+import type { ReelsResearch } from "@/server/providers/research/reels-research";
 
 export const referenceDiscoveryInputSchema = z.object({
   objective: z.string().trim().min(8).max(500),
@@ -159,6 +156,7 @@ export async function discoverReferenceCandidates(
 
   if (env.LLM_REAL_CALLS_ENABLED && env.REELS_RESEARCH_ENABLED && env.OPENAI_API_KEY) {
     try {
+      const { researchReelsPatterns } = await import("@/server/providers/research/reels-research");
       const run = await researchReelsPatterns(toBrief(parsed));
       return referenceDiscoveryResponseSchema.parse({
         mode: "real",
