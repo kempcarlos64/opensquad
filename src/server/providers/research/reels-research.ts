@@ -8,7 +8,9 @@ import { getEnv } from "@/server/env";
 import { loadResearchPrompt } from "../scripts/prompt-loader";
 
 const researchPatternSchema = z.object({
-  source_url: z.url(),
+  // Structured Outputs does not accept JSON Schema's `uri` format. The URL is
+  // validated again when a researched item becomes a selectable candidate.
+  source_url: z.string().min(10).max(2_000),
   platform: z.enum(["instagram", "meta", "youtube", "tiktok", "web"]),
   content_type: z.enum(["organic", "ad", "official_guidance", "unknown"]),
   pattern: z.string().min(20).max(800),
