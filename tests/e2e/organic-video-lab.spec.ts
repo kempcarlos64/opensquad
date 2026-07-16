@@ -25,6 +25,11 @@ test("fluxo mock completo: briefing até vídeo final", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Da ideia ao vídeo/i })).toBeVisible();
   await expect(page.getByText(/MODO MOCK/)).toBeVisible();
 
+  await page.getByTestId("discover-references").click();
+  await expect(page.getByTestId("reference-results")).toBeVisible();
+  await page.getByLabel("Usar no roteiro").first().check();
+  await expect(page.getByText(/1 selecionada\(s\)/)).toBeVisible();
+
   await page.getByTestId("generate-scripts").click();
   await expect(page.getByTestId("candidate-grid")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId("candidate-retention")).toBeVisible();

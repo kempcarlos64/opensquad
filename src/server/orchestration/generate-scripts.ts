@@ -96,7 +96,10 @@ export async function generateScriptsForProject(
   if (project.finalScriptJson) return project.finalScriptJson;
 
   let workingBrief: VideoBrief = project.briefJson;
-  if (provider.mode === "openai" && getEnv().REELS_RESEARCH_ENABLED) {
+  // A selected reference library is the source of truth. Automatic discovery
+  // remains useful for an empty briefing, but must never silently add items
+  // after the user has chosen which references may influence the script.
+  if (provider.mode === "openai" && getEnv().REELS_RESEARCH_ENABLED && workingBrief.source_patterns.length === 0) {
     await addAuditEvent(projectId, "research.started", { provider: "openai_web_search" });
     try {
       const research = await researchReelsPatterns(workingBrief);
@@ -111,6 +114,10 @@ export async function generateScriptsForProject(
       logger.warn("reels_research.failed", { projectId, message });
       await addAuditEvent(projectId, "research.failed", { message });
     }
+  } else if (workingBrief.source_patterns.length > 0) {
+    await addAuditEvent(projectId, "research.skipped_selected_references", {
+      selectedReferences: workingBrief.source_patterns.length,
+    });
   }
 
   workingBrief = normalizeBriefReferences(workingBrief);

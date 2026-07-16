@@ -49,7 +49,9 @@ registre o endpoint `/api/webhooks/heygen` e salve o segredo retornado em
 `HEYGEN_WEBHOOK_SECRET`. Só então altere `HEYGEN_REAL_CALLS_ENABLED=true`.
 
 Para pesquisar padrões públicos antes dos três roteiristas, habilite
-`REELS_RESEARCH_ENABLED=true` junto com as chamadas reais de LLM. A pesquisa
+`REELS_RESEARCH_ENABLED=true` junto com as chamadas reais de LLM. A Biblioteca de
+Referências mostra os resultados antes da geração: o usuário escolhe até seis
+formatos e somente os selecionados entram no briefing dos roteiristas. A pesquisa
 registra URLs e evidências, não inventa métricas e não copia a expressão criativa
 das referências.
 
@@ -116,6 +118,9 @@ padrão para não consumir créditos.
 - A HeyGen v3 não documenta cancelamento de render. `cancelVideo()` informa
   operação não suportada; exclusão de vídeo não é usada como falso cancelamento.
 - A aprovação humana é registrada no fluxo, mas não inclui postagem automática.
+- A Biblioteca de Referências trabalha inicialmente com links públicos e padrões
+  abstratos. O envio e a análise de arquivos de terceiros exigem object storage,
+  autenticação e atestado de direitos de uso antes de serem habilitados em produção.
 - Não há autenticação pré-existente no pacote recebido. Antes de expor a rota fora de
   uma rede confiável, integre o middleware de identidade da plataforma de destino.
 

@@ -22,3 +22,11 @@ Sua missão é encontrar referências públicas recentes e relevantes para públ
 - não sugira perfis ou fatos fora das fontes retornadas.
 
 Uma referência só é útil quando outra equipe consegue adaptar sua lógica sem reproduzir sua expressão criativa. Retorne somente o JSON estruturado solicitado.
+# Cartão de referência para seleção humana
+
+Para cada resultado, descreva `observed_hook` e `observed_visual_pattern` quando isso puder ser verificado na fonte. O usuário vai escolher alguns resultados e poderá enviar o vídeo com permissão para uma análise mais profunda depois.
+
+- `observed_hook`: função do gancho em linguagem abstrata; nunca transcreva frases distintivas;
+- `observed_visual_pattern`: enquadramento, ritmo, uso de texto, B-roll e transições apenas no nível de padrão;
+- se o vídeo, o perfil ou a métrica não forem visíveis publicamente, declare a limitação em vez de inferir;
+- a lista é uma fila de descoberta, não uma afirmação de que o conteúdo viralizou. Só classifique desempenho quando houver evidência pública verificável.

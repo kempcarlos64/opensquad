@@ -61,6 +61,26 @@ type ProjectDetail = {
 
 type HistoryResponse = { projects: Project[] };
 
+type ReferenceCandidate = {
+  id: string;
+  sourceUrl: string;
+  platform: "instagram" | "meta" | "youtube" | "tiktok" | "web";
+  creatorOrBrand: string;
+  observedHook: string;
+  observedStructure: string;
+  observedVisualPattern: string;
+  performanceSignal: string;
+  adaptationGuardrail: string;
+  rightsOrPermission: "public_reference";
+};
+
+type ReferenceDiscovery = {
+  mode: "mock" | "real";
+  summary: string;
+  candidates: ReferenceCandidate[];
+  metadata: { model: string; latencyMs: number; estimatedCost: number };
+};
+
 const initialForm = {
   title: "Conteúdo Besorah — consistência sem improviso",
   objective: "Mostrar como transformar conhecimento em conteúdo orgânico consistente",
@@ -85,6 +105,7 @@ const eventLabels: Record<string, string> = {
   "research.started": "Pesquisa de referências iniciada",
   "research.completed": "Padrões de Reels verificados",
   "research.failed": "Pesquisa indisponível; referências manuais mantidas",
+  "research.skipped_selected_references": "Referências selecionadas preservadas",
   "scripts.round_started": "Roteiristas iniciados em paralelo",
   "scripts.insufficient_candidates": "Nova rodada solicitada",
   "judge.completed": "Juiz concluiu a convergência",
@@ -142,6 +163,8 @@ export function OrganicVideoLab() {
   const [history, setHistory] = useState<Project[]>([]);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [editedScript, setEditedScript] = useState("");
+  const [referenceDiscovery, setReferenceDiscovery] = useState<ReferenceDiscovery | null>(null);
+  const [selectedReferenceIds, setSelectedReferenceIds] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -234,6 +257,45 @@ export function OrganicVideoLab() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
+  function toggleReference(id: string) {
+    setSelectedReferenceIds((current) => {
+      if (current.includes(id)) return current.filter((currentId) => currentId !== id);
+      if (current.length >= 6) {
+        setError("Selecione no máximo seis referências por roteiro.");
+        return current;
+      }
+      return [...current, id];
+    });
+  }
+
+  async function discoverReferences() {
+    setBusy("references");
+    setError(null);
+    try {
+      const result = await requestJson<ReferenceDiscovery>(
+        "/api/organic-video-lab/references/discover",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            objective: form.objective,
+            audience: form.audience,
+            offer: form.offer,
+            tone: form.tone.split(",").map((tone) => tone.trim()).filter(Boolean),
+            durationSeconds: Number(form.duration),
+            cta: form.cta,
+          }),
+        },
+      );
+      setReferenceDiscovery(result);
+      setSelectedReferenceIds([]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Falha ao pesquisar referências.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function generateScripts() {
     if (!avatarId || !voiceId) {
       setError("Selecione avatar e voz antes de iniciar.");
@@ -256,7 +318,24 @@ export function OrganicVideoLab() {
             tone: form.tone.split(",").map((tone) => tone.trim()).filter(Boolean),
             duration_seconds: Number(form.duration),
             cta: form.cta,
-            source_patterns: lines(form.sourcePatterns).map((description) => ({ description })),
+            source_patterns: [
+              ...(referenceDiscovery?.candidates ?? [])
+                .filter((reference) => selectedReferenceIds.includes(reference.id))
+                .map((reference) => ({
+                  id: reference.id,
+                  description: reference.observedStructure,
+                  source_type: "video" as const,
+                  source_url: reference.sourceUrl,
+                  creator_or_brand: reference.creatorOrBrand,
+                  observed_hook: reference.observedHook,
+                  observed_structure: reference.observedStructure,
+                  observed_visual_pattern: reference.observedVisualPattern,
+                  performance_signal: reference.performanceSignal,
+                  adaptation_guardrail: reference.adaptationGuardrail,
+                  rights_or_permission: reference.rightsOrPermission,
+                })),
+              ...lines(form.sourcePatterns).map((description) => ({ description })),
+            ].slice(0, 12),
             allowed_claims: lines(form.allowedClaims),
             forbidden_claims: lines(form.forbiddenClaims),
             brand_context: {
@@ -424,6 +503,65 @@ export function OrganicVideoLab() {
             <label className="field"><span>Avatar</span><select value={avatarId} onChange={(event) => setAvatarId(event.target.value)}>{avatars.map((avatar) => <option key={avatar.id} value={avatar.id}>{avatar.name}</option>)}</select>{selectedAvatar?.previewImageUrl ? <span className="avatar-preview" role="img" aria-label={`Prévia do avatar ${selectedAvatar.name}`} style={{ backgroundImage: `url(${selectedAvatar.previewImageUrl})` }} /> : null}</label>
             <label className="field"><span>Voz</span><select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>{voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.language ? ` · ${voice.language}` : ""}</option>)}</select>{selectedVoice?.previewAudioUrl ? <audio className="voice-preview" controls preload="none" src={selectedVoice.previewAudioUrl}>Seu navegador não reproduz esta prévia de voz.</audio> : null}</label>
           </div>
+          <section className="reference-library" aria-labelledby="reference-library-title">
+            <div className="reference-library-heading">
+              <div>
+                <p>02 · BIBLIOTECA DE REFERÊNCIAS</p>
+                <h3 id="reference-library-title">Pesquise formatos antes de escrever.</h3>
+              </div>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => void discoverReferences()}
+                disabled={busy !== null}
+                data-testid="discover-references"
+              >
+                {busy === "references" ? "Pesquisando…" : "Buscar formatos"}
+              </button>
+            </div>
+            <p className="reference-library-copy">
+              O agente traz links públicos e padrões verificáveis. Selecione os formatos que devem orientar o roteiro; a adaptação preserva texto, cenas e identidade originais.
+            </p>
+            {referenceDiscovery ? (
+              <div className="reference-results" data-testid="reference-results">
+                <div className="reference-results-meta">
+                  <span>{referenceDiscovery.mode === "real" ? "PESQUISA REAL" : "DEMONSTRAÇÃO MOCK"}</span>
+                  <small>{referenceDiscovery.summary}</small>
+                </div>
+                <div className="reference-card-grid">
+                  {referenceDiscovery.candidates.map((reference) => {
+                    const selected = selectedReferenceIds.includes(reference.id);
+                    return (
+                      <article className={`reference-card ${selected ? "selected" : ""}`} key={reference.id}>
+                        <div className="reference-card-top">
+                          <span>{reference.platform}</span>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleReference(reference.id)}
+                            />
+                            Usar no roteiro
+                          </label>
+                        </div>
+                        <h4>{reference.observedHook}</h4>
+                        <p>{reference.observedStructure}</p>
+                        <dl>
+                          <div><dt>Visual</dt><dd>{reference.observedVisualPattern}</dd></div>
+                          <div><dt>Sinal</dt><dd>{reference.performanceSignal}</dd></div>
+                        </dl>
+                        <a href={reference.sourceUrl} target="_blank" rel="noreferrer">Abrir referência pública ↗</a>
+                      </article>
+                    );
+                  })}
+                </div>
+                <p className="reference-rights-note">
+                  {selectedReferenceIds.length} selecionada(s). Baixe e envie um vídeo somente quando você tiver direito de usá-lo; ao anexá-lo aqui no Codex, farei a análise de cenas, ritmo e legendas para uma versão original da Besorah.
+                </p>
+              </div>
+            ) : null}
+          </section>
+
           <button className="primary-action" type="button" onClick={() => void generateScripts()} disabled={busy !== null || !avatarId || !voiceId} data-testid="generate-scripts">
             <span>{busy === "scripts" ? "Os agentes estão trabalhando…" : "Gerar três roteiros"}</span><b>↗</b>
           </button>
