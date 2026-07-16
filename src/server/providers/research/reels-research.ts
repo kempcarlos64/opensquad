@@ -12,8 +12,8 @@ const researchPatternSchema = z.object({
   platform: z.enum(["instagram", "meta", "youtube", "tiktok", "web"]),
   content_type: z.enum(["organic", "ad", "official_guidance", "unknown"]),
   pattern: z.string().min(20).max(800),
-  observed_hook: z.string().min(2).max(500).optional(),
-  observed_visual_pattern: z.string().min(2).max(1_000).optional(),
+  observed_hook: z.string().min(2).max(500).nullable(),
+  observed_visual_pattern: z.string().min(2).max(1_000).nullable(),
   evidence: z.string().min(10).max(800),
   public_metrics: z.object({
     views: z.union([z.number().int().nonnegative(), z.literal("unknown")]),

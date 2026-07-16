@@ -11,6 +11,8 @@ describe("reels research schema", () => {
           source_url: "https://www.instagram.com/reel/example/",
           platform: "instagram",
           content_type: "organic",
+          observed_hook: null,
+          observed_visual_pattern: null,
           pattern: "Gancho de contraste seguido por demonstração curta e CTA contextual.",
           evidence: "A página pública mostra a estrutura descrita, sem métrica verificável.",
           public_metrics: {
@@ -36,7 +38,9 @@ describe("reels research schema", () => {
             source_url: "https://www.instagram.com/reel/example/",
             platform: "instagram",
             content_type: "organic",
-            pattern: "Estrutura de vídeo suficientemente descrita para passar o limite mínimo.",
+          observed_hook: null,
+          observed_visual_pattern: null,
+          pattern: "Estrutura de vídeo suficientemente descrita para passar o limite mínimo.",
             evidence: "Evidência pública descrita de forma objetiva.",
             public_metrics: {
               views: "milhões",
