@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { RunMetadata, VideoBrief } from "@/lib/domain";
 import { getEnv } from "@/server/env";
+import { logger } from "@/server/logger";
 import type { ReelsResearch } from "@/server/providers/research/reels-research";
 
 export const referenceDiscoveryInputSchema = z.object({
@@ -168,9 +169,12 @@ export async function discoverReferenceCandidates(
           estimatedCost: run.metadata.estimatedCost,
         },
       });
-    } catch {
+    } catch (error) {
       // Research must not prevent a user from choosing their own references or
       // continuing in mock mode when an external provider is unavailable.
+      logger.warn("references.research_unavailable", {
+        message: error instanceof Error ? error.message : "Unexpected error",
+      });
       return fallbackReferenceDiscovery(
         parsed,
         "A pesquisa externa está indisponível neste momento. Exibimos formatos demonstrativos; tente novamente ou adicione links públicos manualmente.",
