@@ -141,17 +141,33 @@ export async function discoverReferenceCandidates(
   const env = getEnv();
 
   if (env.LLM_REAL_CALLS_ENABLED && env.REELS_RESEARCH_ENABLED && env.OPENAI_API_KEY) {
-    const run = await researchReelsPatterns(toBrief(parsed));
-    return referenceDiscoveryResponseSchema.parse({
-      mode: "real",
-      summary: run.report.search_summary,
-      candidates: researchToCandidates(run.report),
-      metadata: {
-        model: run.metadata.model,
-        latencyMs: run.metadata.latencyMs,
-        estimatedCost: run.metadata.estimatedCost,
-      },
-    });
+    try {
+      const run = await researchReelsPatterns(toBrief(parsed));
+      return referenceDiscoveryResponseSchema.parse({
+        mode: "real",
+        summary: run.report.search_summary,
+        candidates: researchToCandidates(run.report),
+        metadata: {
+          model: run.metadata.model,
+          latencyMs: run.metadata.latencyMs,
+          estimatedCost: run.metadata.estimatedCost,
+        },
+      });
+    } catch {
+      // Research must not prevent a user from choosing their own references or
+      // continuing in mock mode when an external provider is unavailable.
+      const metadata = mockMetadata();
+      return referenceDiscoveryResponseSchema.parse({
+        mode: "mock",
+        summary: "A pesquisa externa está indisponível neste momento. Exibimos formatos demonstrativos; tente novamente ou adicione links públicos manualmente.",
+        candidates: mockCandidates(parsed),
+        metadata: {
+          model: metadata.model,
+          latencyMs: metadata.latencyMs,
+          estimatedCost: metadata.estimatedCost,
+        },
+      });
+    }
   }
 
   const metadata = mockMetadata();
